@@ -350,10 +350,13 @@ class Layer {
 // Renders a ball, stores brain, and updates based off outputs.
 class ball {
   constructor(
-  x=Math.random()*windowWidth/2+windowWidth/4, 
-  y=Math.random()*windowHeight/2+windowHeight/4, rad=10) {
+    x=Math.random()*windowWidth/2+windowWidth/4, 
+    y=Math.random()*windowHeight/2+windowHeight/4, rad=10
+  ) {
     this.pos = [x,y];
-    this.old_pos = [x,y];
+    this.vel = [0,0];
+    this.acc = [0,0];
+    
     this.rad = rad;
     this.color = "orange";
     
@@ -362,7 +365,7 @@ class ball {
     // Brain is a neural network with 4 inputs, 2 hidden layers of size 4 each, and 4 outputs.
     // INPUTS: x and y position of ball, and x and y position of goal
     // OUTPUTS: 4 binary values representing movement.
-    this.brain = new NN([2, 4, 4]);
+    this.brain = new NN([4, 4, 4]);
     // console.log(this.brain)
   }
 
@@ -371,20 +374,39 @@ class ball {
     // 1 LEFT
     // 2 RIGHT
     // 3 DOWN
-    var speed = 1;
-    this.old_pos = this.pos;
+    var speed = .1;
 
-    if (i[0]) this.pos[1]-=speed;this.fitness -= .001;
-    if (i[1]) this.pos[0]-=speed;this.fitness -= .001;
-    if (i[2]) this.pos[0]+=speed;this.fitness -= .001;
-    if (i[3]) this.pos[1]+=speed;this.fitness -= .001;
+    // if (i[0]) this.pos[1]-=speed;this.fitness -= .001;
+    // if (i[1]) this.pos[0]-=speed;this.fitness -= .001;
+    // if (i[2]) this.pos[0]+=speed;this.fitness -= .001;
+    // if (i[3]) this.pos[1]+=speed;this.fitness -= .001;
+
+    // Add acceleration
+    if (i[0]) this.acc[1]=speed;this.fitness -= .001;
+    if (i[1]) this.acc[0]=speed;this.fitness -= .001;
+    if (i[2]) this.acc[0]=-speed;this.fitness -= .001;
+    if (i[3]) this.acc[1]=-speed;this.fitness -= .001;
+
+    // Update velocity
+    this.vel[0] += this.acc[0];
+    this.vel[1] += this.acc[1];
+
+    this.fitness -= Math.abs(this.vel[0])/10; // Penalize high velocity
+    this.fitness -= Math.abs(this.vel[1])/10; // Penalize high velocity
+
+
+    // Max velocity
+    var maxSpeed = 3;
+    this.vel[0] = Math.min(Math.max(this.vel[0], -maxSpeed), maxSpeed);
+    this.vel[1] = Math.min(Math.max(this.vel[1], -maxSpeed), maxSpeed);
+
+
+    // Update position
+    this.pos[0] += this.vel[0];
+    this.pos[1] += this.vel[1];
+
+
     // this.fitness += .1;
-
-    // if going away from goal decrease fitness
-    // if change in new vs old is away from goal decrease fitness
-    const dx = this.pos[0] - this.old_pos[0];
-    const dy = this.pos[1] - this.old_pos[1];
-    
 
     // if (i[0] && i[3]) this.fitness -= .5;
     // if (i[1] && i[2]) this.fitness -= .5;
@@ -404,7 +426,7 @@ class ball {
     const dx = goalx - this.pos[0];
     const dy = goaly - this.pos[1];
 
-    this.move(NN.feedForward([dx, dy], this.brain), [goalx, goaly]);
+    this.move(NN.feedForward([dx, dy, this.vel[0], this.vel[1]], this.brain), [goalx, goaly]);
     // console.log(NN.feedForward([normalizedX, normalizedY, goalx/windowWidth, goaly/windowHeight], this.brain));
     // console.log(this.brain)
   }
@@ -461,10 +483,10 @@ let step = 0;
 
 // have a higher mutation rate for the first few generations.
 // mutation_factor starts at .10 and decreases by .001 each generation.
-let mutation_factor = .025;
+let mutation_factor = .15;
 
-const training = false;
-const mouse = true;
+const training = true;
+const mouse = false;
 
 if (mouse) {
   document.addEventListener('mousemove', function(e) {
@@ -533,7 +555,10 @@ function frame() {
     step++;
     // step%10==0?console.log(step):null
      
-    if(step>=steps_per_gen) {
+    // If the steps are max, next generation
+    // Or if the fitness is better than a certain threshold, next generation.
+    const threshold = 0.90;
+    if(step>=steps_per_gen || bestAgents[0].fitness > threshold) {
       
       // If brain doesn't exist, create.
       if (!localStorage.getItem("brain")) localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
@@ -554,8 +579,8 @@ function frame() {
       generation();
 
       // Decrease mutation factor.
-      // if (mutation_factor < 0.001) mutation_factor = 0.001;
-      // else mutation_factor -= 0.001;
+      if (mutation_factor < 0.001) mutation_factor = 0.001;
+      else mutation_factor -= 0.001;
 
       // Change goal pos
       goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
