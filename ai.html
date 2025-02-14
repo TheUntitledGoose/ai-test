@@ -396,7 +396,7 @@ class ball {
 
 
     // Max velocity
-    var maxSpeed = 3;
+    var maxSpeed = 5;
     this.vel[0] = Math.min(Math.max(this.vel[0], -maxSpeed), maxSpeed);
     this.vel[1] = Math.min(Math.max(this.vel[1], -maxSpeed), maxSpeed);
 
@@ -405,6 +405,15 @@ class ball {
     this.pos[0] += this.vel[0];
     this.pos[1] += this.vel[1];
 
+    // If velocity away from goal, penalize
+    const goalx = goalpos[0];
+    const goaly = goalpos[1];
+    if (goalx - this.vel[0] < goalx - this.pos[0] && goalx - this.vel[1] < goaly - this.pos[1]) {
+      this.fitness -= .5;
+    } else {
+      // If close to goal, reward
+      this.fitness += .2;
+    }
 
     // this.fitness += .1;
 
