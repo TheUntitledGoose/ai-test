@@ -105,7 +105,7 @@ class NN {
       )
     }
 
-  } 
+  }
 
 
   // ACTIVATION FUNCTIONS
@@ -165,18 +165,18 @@ class NN {
     rect(offset-offset,offset,(between*network.layers.length)+offset*5,max_height,"gray")
 
     for (var layer = 0; layer < network.layers.length; layer++) {
-      
+     
       for (var neuronInput = 0; neuronInput < network.layers[layer].inputs.length; neuronInput++) {
-        var x1= offset+between*layer; 
-          
+        var x1= offset+between*layer;
+         
         var y1= offset+(max_height/network.layers[layer].inputs.length)*neuronInput+(max_height/network.layers[layer].inputs.length/2);
 
         ctx.globalAlpha = Math.min(network.layers[layer].inputs[outputNeuron]+.05,1);
         circle(x1, y1);
-        
+       
         for (var outputNeuron = 0; outputNeuron < network.layers[layer].outputs.length; outputNeuron++) {
 
-          var x= offset+between*(layer+1); 
+          var x= offset+between*(layer+1);
           var y= offset+(max_height/network.layers[layer].outputs.length)*outputNeuron+(max_height/network.layers[layer].outputs.length/2);
 
           ctx.globalAlpha = Math.min(network.layers[layer].outputs[outputNeuron]+.1,1);
@@ -234,47 +234,33 @@ class NN {
   // But it works.
   static plot(fitness, push=false) {
     if (push) plotHistory.push(fitness);
-    
-    const max = plotHistory.length>0 ? Math.max(...plotHistory) : 10;
-    const min = plotHistory.length>0 ? Math.min(...plotHistory) : 0;
+   
+    if (plotHistory.length === 0) return; // Prevent plotting if there are no points
 
+    const max = Math.max(...plotHistory);
+    const min = Math.min(...plotHistory);
     const plotWidth = 400;
     const plotHeight = 200;
     const offset = 50;
-    const plotX = windowWidth-offset-plotWidth;
-    rect(
-      plotX,
-      20,
-      plotWidth,
-      plotHeight,
-      "white"
-    )
+    const plotX = windowWidth - offset - plotWidth;
 
-    line(plotX+20, 20+20, plotX+20, plotHeight, "black")
-    line(plotX+20, plotHeight, plotX+plotWidth-25, plotHeight, "black")
+    // Clear the previous plot
+    rect(plotX, 20, plotWidth, plotHeight, "white");
+    line(plotX + 20, 20 + 20, plotX + 20, plotHeight, "black");
+    line(plotX + 20, plotHeight, plotX + plotWidth - 25, plotHeight, "black");
 
-    for (let i = 0; i < plotHistory.length-1; i++) {
+    const scalingFactor = (plotHeight - 40) / (max - min);
 
-      line(
-        plotX+20+(plotWidth/plotHistory.length)*i,
-        (plotHeight-
-          
-          ((plotHistory[i]-min)*((plotHeight-40)/
-          ((max)-(min))))-20
-        )
-        +20,
-        
-        plotX+20+(plotWidth/plotHistory.length)*(i+1),
-        (plotHeight-
-
-          ((plotHistory[i+1]-min)*((plotHeight-40)/
-          ((max)-(min))))-20
-        )
-
-        +20,"black"
-      )
+    // Iterate through points and draw the lines
+    for (let i = 0; i < plotHistory.length - 1; i++) {
+        const x1 = plotX + (plotWidth / (plotHistory.length - 1)) * i;
+        const y1 = (plotHeight - ((plotHistory[i] - min) * scalingFactor));
+       
+        const x2 = plotX + (plotWidth / (plotHistory.length - 1)) * (i + 1);
+        const y2 = (plotHeight - ((plotHistory[i + 1] - min) * scalingFactor));
+       
+        line(x1, y1, x2, y2, "black");
     }
-
   }
 
 }
@@ -286,7 +272,7 @@ class NN {
 class Layer {
   constructor(inputNeurons, outputNeurons) {
     this.inputs = new Array(inputNeurons);
-    
+   
     this.outputs = new Array(outputNeurons);
     this.biases = new Array(outputNeurons);
 
@@ -320,14 +306,14 @@ class Layer {
 
       let sum = 0;
       for (let inputN = 0; inputN < layer.inputs.length; inputN++) {
-        sum += layer.inputs[inputN]*layer.weights[inputN][outputN]; 
+        sum += layer.inputs[inputN]*layer.weights[inputN][outputN];
       }
 
       // If not binary (such as hidden layers) use tanh
       if (!binary) {
         // tanh
         layer.outputs[outputN] = NN.tanh(sum+layer.biases[outputN])
-      
+     
       // Use binary for outputs since for them it has to be either a 0 or 1.
       } else {
         // Binary Class
@@ -348,24 +334,25 @@ class Layer {
 
 // AGENT
 // Renders a ball, stores brain, and updates based off outputs.
+
 class ball {
   constructor(
-    x=Math.random()*windowWidth/2+windowWidth/4, 
+    x=Math.random()*windowWidth/2+windowWidth/4,
     y=Math.random()*windowHeight/2+windowHeight/4, rad=10
   ) {
     this.pos = [x,y];
     this.vel = [0,0];
     this.acc = [0,0];
-    
+   
     this.rad = rad;
     this.color = "orange";
-    
+   
     this.fitness = 0;
 
     // Brain is a neural network with 4 inputs, 2 hidden layers of size 4 each, and 4 outputs.
     // INPUTS: x and y position of ball, and x and y position of goal
     // OUTPUTS: 4 binary values representing movement.
-    this.brain = new NN([4, 4, 4]);
+    this.brain = new NN([4, 7, 7, 4]);
     // console.log(this.brain)
   }
 
@@ -382,17 +369,20 @@ class ball {
     // if (i[3]) this.pos[1]+=speed;this.fitness -= .001;
 
     // Add acceleration
-    if (i[0]) this.acc[1]=speed;this.fitness -= .001;
-    if (i[1]) this.acc[0]=speed;this.fitness -= .001;
-    if (i[2]) this.acc[0]=-speed;this.fitness -= .001;
-    if (i[3]) this.acc[1]=-speed;this.fitness -= .001;
+    if (i[0]) this.acc[1]=speed;//this.fitness -= .01;
+    if (i[1]) this.acc[0]=speed;//this.fitness -= .01;
+    if (i[2]) this.acc[0]=-speed;//this.fitness -= .01;
+    if (i[3]) this.acc[1]=-speed;//this.fitness -= .01;
 
     // Update velocity
     this.vel[0] += this.acc[0];
     this.vel[1] += this.acc[1];
 
-    this.fitness -= Math.abs(this.vel[0])/10; // Penalize high velocity
-    this.fitness -= Math.abs(this.vel[1])/10; // Penalize high velocity
+    this.vel[0] *= .99; // Friction
+    this.vel[1] *= .99; // Friction
+
+    this.fitness -= Math.abs(this.vel[0])*10; // Penalize high velocity
+    this.fitness -= Math.abs(this.vel[1])*10; // Penalize high velocity
 
 
     // Max velocity
@@ -408,17 +398,16 @@ class ball {
     // If velocity away from goal, penalize
     const goalx = goalpos[0];
     const goaly = goalpos[1];
-    if (goalx - this.vel[0] < goalx - this.pos[0] && goalx - this.vel[1] < goaly - this.pos[1]) {
-      this.fitness -= .5;
+    if (goalx - (this.vel[0] + this.pos[0]) < goalx - this.pos[0] && goalx - (this.vel[1] + this.pos[1]) < goaly - this.pos[1]) {
+      this.fitness += .5;
     } else {
-      // If close to goal, reward
-      this.fitness += .2;
+      this.fitness -= .5;
     }
 
     // this.fitness += .1;
 
-    // if (i[0] && i[3]) this.fitness -= .5;
-    // if (i[1] && i[2]) this.fitness -= .5;
+    if ((i[0] && i[1]) || (i[0] && i[2])) this.fitness -= 10;
+    if ((i[3] && i[1]) || (i[3] && i[2])) this.fitness -= 10;
   }
 
   update(goalx, goaly) {
@@ -435,6 +424,9 @@ class ball {
     const dx = goalx - this.pos[0];
     const dy = goaly - this.pos[1];
 
+    // Penalize if too far
+    // this.fitness -= Math.sqrt( dx**2 + dy**2 )
+
     this.move(NN.feedForward([dx, dy, this.vel[0], this.vel[1]], this.brain), [goalx, goaly]);
     // console.log(NN.feedForward([normalizedX, normalizedY, goalx/windowWidth, goaly/windowHeight], this.brain));
     // console.log(this.brain)
@@ -447,6 +439,7 @@ class ball {
     ctx.fill();
   }
 }
+
 
 // Simple dot on screen for posision.
 // Doesn't need to be a class.
@@ -469,13 +462,14 @@ class goal {
 
 // Initialize agents array, configure amount of agents, and the generation function.
 var balls = [];
-const ballAmount = 10000;
+const training = false;
+const ballAmount = training ? 10000 : 1;
 function generation() {
   for (let i = 0; i < ballAmount; i++) {
     // let x = Math.random() * windowWidth;
     // let y = Math.random() * windowHeight;
-    // balls.push(new ball(x, y)); 
-    balls.push(new ball(windowWidth/2, windowHeight/2)); 
+    // balls.push(new ball(x, y));
+    balls.push(new ball(windowWidth/2, windowHeight/2));
   }
 }
 
@@ -488,16 +482,14 @@ var goalball = new goal()
 
 // Config
 const steps_per_gen = 1500;
+let gen = 0;
 let step = 0;
 
 // have a higher mutation rate for the first few generations.
 // mutation_factor starts at .10 and decreases by .001 each generation.
 let mutation_factor = .15;
 
-const training = true;
-const mouse = false;
-
-if (mouse) {
+if (!training) {
   document.addEventListener('mousemove', function(e) {
     goalball.pos[0] = e.clientX;
     goalball.pos[1] = e.clientY;
@@ -507,20 +499,20 @@ if (mouse) {
 
 
 // MAIN CODE PER FRAME FOR EACH OF THE AGENTS
-function frame() { 
+function frame() {
   ctx.clearRect(0, 0, c.width, c.height);
 
   ctx.globalAlpha = 0.3;
 
   if (!training) balls[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
-  
+ 
   // Loop through all agents to update/determine their fitness
   // for (const agent of balls) {
   for (var i = 0; i < balls.length; i++) {
     const agent = balls[i];
 
     if (training) {
-      agent.fitness = 1 / (1 + Math.sqrt(
+      agent.fitness += 1 / (0.000001 + Math.sqrt(
           Math.pow(goalball.pos[0] - agent.pos[0], 2) +
           Math.pow(goalball.pos[1] - agent.pos[1], 2)
       ))
@@ -533,9 +525,9 @@ function frame() {
     agent.color = "orange";
     agent.draw();
   }
-  
+ 
   ctx.globalAlpha = 1;
-  
+ 
   // Draw the main objective
   goalball.draw();
    
@@ -547,13 +539,13 @@ function frame() {
       // agent.color = "blue"
       const agent = bestAgents[i];
       // i == 0 ? console.log(agent.normx, agent.normy, agent.fitness) : null
-      i == 0 ? console.log(agent.fitness) : null
+      // i == 0 ? console.log(agent.fitness) : null
 
       // make the color if #1: red, #2: green, #3: blue.
       agent.color = i == 0 ? "red" : i == 1 ? "green" : "blue";
       agent.draw();
     }
-    
+   
     // Visualized progress over all generations.
     // It's a hacky solution so it doesn't work quite alright.
     NN.visualize(bestAgents[0].brain, bestAgents[0].pos)
@@ -566,24 +558,29 @@ function frame() {
      
     // If the steps are max, next generation
     // Or if the fitness is better than a certain threshold, next generation.
-    const threshold = 0.90;
-    if(step>=steps_per_gen || bestAgents[0].fitness > threshold) {
-      
-      // If brain doesn't exist, create.
+    //let threshold = 0.90;
+    //if (JSON.parse(localStorage.getItem("brain"))) threshold = JSON.parse(localStorage.getItem("brain")).fitness
+    // || (bestAgents[0].fitness > threshold)    
+    if(step>=steps_per_gen ) {
+
+      // If brain if it doesn't exist, create.
       if (!localStorage.getItem("brain")) localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
-      
+     
       // If agent did better than last time, save.
       if (bestAgents[0].fitness > JSON.parse(localStorage.getItem("brain")).fitness ) {
         localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
       }
-      
+     
+      gen++
+      console.log(`Gen: ${gen}, best: ${bestAgents[0].fitness}`)
+ 
       // Reset steps and remove all agents.
       step = 0;
       balls = [];
-      
+     
       // Plot the new generation best agent.
       NN.plot(bestAgents[0].fitness, true);
-      
+     
       // Generate new generation.
       generation();
 
@@ -593,12 +590,12 @@ function frame() {
 
       // Change goal pos
       goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
-      
+     
       // Get best agents from last gen to stay.
       balls[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
       balls[1].brain = bestAgents[1].brain;
       balls[2].brain = bestAgents[2].brain;
-      
+     
       // Mutate the rest.
       for (let i = 3; i < balls.length; i++) {
         balls[i].brain = JSON.parse(JSON.stringify(balls[i%bestAgents.length].brain));
@@ -609,10 +606,10 @@ function frame() {
 
   window.requestAnimationFrame(frame);
 }
-  
+ 
 // setInterval(frame,50)
 window.requestAnimationFrame(frame);
-  
+ 
 </script>
 
 </body>
