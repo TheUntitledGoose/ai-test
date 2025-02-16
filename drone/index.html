@@ -95,6 +95,10 @@ function text(x,y,text) {
   ctx.fillText(text, x,y);
 }
 
+function cross(v1,v2) {
+  return v1[0] * v2[1] - v1[1] * v2[0];
+}
+
 class NN {
   constructor(layers) {
 
@@ -121,8 +125,8 @@ class NN {
   static feedForward(initInputs, nn) {
     let outputs = Layer.feedForwardLayer(initInputs, nn.layers[0]);
     for (let layer = 1; layer < nn.layers.length; layer++) {
-      var is_last_layer = layer == nn.layers.length-1;
-      outputs = Layer.feedForwardLayer(outputs, nn.layers[layer], is_last_layer)
+      // var is_last_layer = layer == nn.layers.length-1;
+      outputs = Layer.feedForwardLayer(outputs, nn.layers[layer], false)
     }
 
     return outputs;
@@ -334,24 +338,37 @@ class Layer {
 
 // AGENT
 // Renders a ball, stores brain, and updates based off outputs.
-class ball {
+// thanks to Pezza for most of this code/inspiration (Pezzza's Work on YT)
+
+class drone {
   constructor(
     x=Math.random()*windowWidth/2+windowWidth/4,
-    y=Math.random()*windowHeight/2+windowHeight/4, rad=10
+    y=Math.random()*windowHeight/2+windowHeight/4
   ) {
     this.pos = [x,y];
     this.vel = [0,0];
     this.acc = [0,0];
+
+    this.width = 75;
+    this.height = 25;
+    
+    this.angle = 0;
+    this.angular_velocity = 0;
+
+    // Each drone will have 2 thrusters
+    this.thrusters = [
+      new thruster(this.pos[0]-this.width/2, this.pos[1]),
+      new thruster(this.pos[0]+this.width/2, this.pos[1])
+    ]
    
-    this.rad = rad;
-    this.color = "orange";
+    this.color = "gray";
    
     this.fitness = 0;
 
     // Brain is a neural network with 4 inputs, 2 hidden layers of size 4 each, and 4 outputs.
-    // INPUTS: x and y position of ball, and x and y position of goal
-    // OUTPUTS: 4 binary values representing movement.
-    this.brain = new NN([4, 7, 7, 4]);
+    // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
+    // OUTPUTS: 4 values representing power/angle.
+    this.brain = new NN([7, 9, 9, 4]);
     // console.log(this.brain)
   }
 
@@ -359,35 +376,59 @@ class ball {
     // 0 UP
     // 1 LEFT
     // 2 RIGHT
-    // 3 DOWN
-    var speed = .1;
-
-    // if (i[0]) this.pos[1]-=speed;this.fitness -= .001;
-    // if (i[1]) this.pos[0]-=speed;this.fitness -= .001;
-    // if (i[2]) this.pos[0]+=speed;this.fitness -= .001;
-    // if (i[3]) this.pos[1]+=speed;this.fitness -= .001;
+    // 3 DOWN // NO MORE
 
     // Add acceleration
-    if (i[0]) this.acc[1]=speed;//this.fitness -= .01;
-    if (i[1]) this.acc[0]=speed;//this.fitness -= .01;
-    if (i[2]) this.acc[0]=-speed;//this.fitness -= .01;
-    if (i[3]) this.acc[1]=-speed;//this.fitness -= .01;
+    // if (i[0]) this.acc[1]=speed;//this.fitness -= .01; // make this speed -speed for correctness
+    // if (i[1]) this.acc[0]=speed;//this.fitness -= .01;
+    // if (i[2]) this.acc[0]=-speed;//this.fitness -= .01;
+    // if (i[3]) this.acc[1]=-speed;//this.fitness -= .01; // make this speed: speed for correctness
+
+
+
+    // New Inputs:
+    // 0: Power for thruster 0 (0 => 1)
+    // 1: Angle for thruster 0 (-1 => 1)
+    // 2: Power for thruster 0 (0 => 1)
+    // 3: Angle for thruster 0 (-1 => 1)
+
+    // SEND ALL THIS TO THRUSTERS
+    const left = this.thrusters[0]
+    const right = this.thrusters[1]
+
+    left.setPower(i[0]);
+    left.setAngle(i[1]);
+
+    right.setPower(i[2]);
+    right.setAngle(i[3]);
+
+    // console.log(this.getThrust())
+
+    // gravity
+    this.acc[1] = .05;
+
+    this.vel[0] += this.getThrust()[0];
+    this.vel[1] += this.getThrust()[1];
+
+    this.angular_velocity += this.getTorque();
+		this.angle += this.angular_velocity;
+
 
     // Update velocity
     this.vel[0] += this.acc[0];
     this.vel[1] += this.acc[1];
 
-    this.vel[0] *= .99; // Friction
-    this.vel[1] *= .99; // Friction
+    // this.vel[0] *= .99; // Friction
+    // this.vel[1] *= .99; // Friction
 
     this.fitness -= Math.abs(this.vel[0])*10; // Penalize high velocity
     this.fitness -= Math.abs(this.vel[1])*10; // Penalize high velocity
 
 
     // Max velocity
-    var maxSpeed = 5;
-    this.vel[0] = Math.min(Math.max(this.vel[0], -maxSpeed), maxSpeed);
-    this.vel[1] = Math.min(Math.max(this.vel[1], -maxSpeed), maxSpeed);
+    // var maxSpeed = 5;
+    // this.vel[0] = Math.min(Math.max(this.vel[0], -maxSpeed), maxSpeed);
+    // this.vel[1] = Math.min(Math.max(this.vel[1], -maxSpeed), maxSpeed);
 
 
     // Update position
@@ -412,14 +453,10 @@ class ball {
   }
 
   update(goalx, goaly) {
-    // console.log(NN.feedForward(this.pos, this.brain));
-    // console.log(this.pos)
-    // console.log(NN.feedForward(this.pos, this.brain))
 
-    // var normalizedX = this.pos[0]/windowWidth;
-    // var normalizedY = this.pos[1]/windowHeight;
-    // this.normx = normalizedX;
-    // this.normy = normalizedY;
+    // Keep the thrusters on the drone
+    // this.thrusters[0].pos = [this.pos[0]-this.width/2, this.pos[1]]
+    // this.thrusters[1].pos = [this.pos[0]+this.width/2, this.pos[1]]
 
     // difference in x and y
     const dx = goalx - this.pos[0];
@@ -428,19 +465,138 @@ class ball {
     // Penalize if too far
     this.fitness -= Math.sqrt( dx**2 + dy**2 );
 
-    this.move(NN.feedForward([dx, dy, this.vel[0], this.vel[1]], this.brain), [goalx, goaly]);
+    // Penalize for high angular velocity
+    this.fitness -= this.angular_velocity;
+
+    // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
+    this.move(NN.feedForward([
+      dx, dy, //to target x/y
+      this.vel[0], this.vel[1], //vel x/y
+      Math.cos(this.angle), Math.sin(this.angle), // cos angle of drone, sin angle of drone
+      this.angular_velocity, // angular velocity of drone
+    ], 
+    this.brain), [goalx, goaly]);
     // console.log(NN.feedForward([normalizedX, normalizedY, goalx/windowWidth, goaly/windowHeight], this.brain));
     // console.log(this.brain)
   }
 
+  getTorque() {
+    const inertia_coef = .8;
+    const thruster_offset = this.width/2;
+
+		const angle_left =  -this.thrusters[0].angle - (Math.PI/2);
+    const left_torque = this.thrusters[0].getPower() / thruster_offset * 
+    cross(
+      [Math.cos(angle_left), Math.sin(angle_left)], 
+      [1.0, 0.0]
+    );
+
+		const angle_right = this.thrusters[1].angle - (Math.PI/2);
+    const right_torque = this.thrusters[1].getPower() / thruster_offset * 
+    cross(
+      [Math.cos(angle_left), Math.sin(angle_left)], 
+      [-1.0, 0.0]
+    );
+
+
+		return (left_torque + right_torque) * inertia_coef;
+  }
+
+  getThrust() {
+    const left = this.thrusters[0];
+    const right = this.thrusters[1];
+
+		const angle_left = this.angle + left.angle - (Math.PI/2);
+	  const thrust_left = mulVector([left.getPower(), left.getPower()], [Math.cos(angle_left), Math.sin(angle_left)]);
+
+		const angle_right = this.angle + right.angle - (Math.PI/2);
+		const thrust_right = mulVector([right.getPower(), right.getPower()], [Math.cos(angle_right), Math.sin(angle_right)]);
+
+    // debugger
+		return addVector(thrust_left, thrust_right);
+	}
+
   draw() {
-    ctx.beginPath();
+    ctx.save();
+
+    ctx.translate(this.pos[0], this.pos[1])
+
+    ctx.rotate(this.angle);
+
     ctx.fillStyle = this.color;
-    ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
-    ctx.fill();
+    rect(-this.width/2, -this.height/2, this.width, this.height);
+
+    this.thrusters[0].draw([-this.width/2, 0]);
+    this.thrusters[1].draw([+this.width/2, 0]);
+
+    ctx.restore();
   }
 }
 
+const flame = new Image()
+flame.src = "flame.png"
+
+class thruster {
+  constructor(x,y) {
+    this.pos = [x,y];
+
+    this.power_ratio = 0; // output of AI will be 0-1; so from 0 to max_power
+    this.max_power = .25; // acc
+
+		this.angle = 0; // Angle of each thruster
+		this.max_angle = 0.5 * Math.PI; // Max left half PI and max right half PI
+		this.target_angle; // Ratio of 
+		this.angle_var_speed = .1; // How fast the thruster can rotate
+		this.angle_ratio;
+
+    this.width = 20;
+    this.height = 50;
+  }
+
+  setAngle(ratio) {
+    this.target_angle = this.max_angle * Math.max(-1.0, Math.min(1.0, ratio));
+  }
+
+  setPower(ratio) {
+    this.power_ratio = Math.max(0.0, Math.min(1.0, ratio));
+  }
+
+  getPower() {
+    return this.power_ratio * this.max_power;
+  }
+
+  update() {
+    const speed = this.angle_var_speed;
+    this.angle += speed * (this.target_angle - this.angle);
+    this.angle_ratio = this.angle / this.max_angle;
+  }
+
+  draw(pos) {
+    ctx.save();
+
+    ctx.translate(pos[0], pos[1])
+    
+    ctx.rotate(this.target_angle);
+    // Main thruster body
+    rect(
+      -this.width/2, 
+      -this.height/2, 
+      this.width, 
+      this.height, 
+      "gray"
+    )
+
+
+    // Flame
+    ctx.translate(-this.width*2/2, +this.height/2.5)
+    ctx.drawImage(flame, 0, 0, this.width*2, this.getPower()*flame.height/2)
+
+    ctx.restore();
+
+  }
+
+
+}
 
 // Simple dot on screen for posision.
 // Doesn't need to be a class.
@@ -462,15 +618,15 @@ class goal {
 
 
 // Initialize agents array, configure amount of agents, and the generation function.
-var balls = [];
-const training = false;
-const ballAmount = training ? 10000 : 1;
+var drones = [];
+const training = true;
+const ballAmount = training ? 2000 : 1;
 function generation() {
   for (let i = 0; i < ballAmount; i++) {
     // let x = Math.random() * windowWidth;
     // let y = Math.random() * windowHeight;
-    // balls.push(new ball(x, y));
-    balls.push(new ball(windowWidth/2, windowHeight/2));
+    // drones.push(new drone(x, y));
+    drones.push(new drone(windowWidth/2, windowHeight/2));
   }
 }
 
@@ -482,7 +638,7 @@ var goalball = new goal()
 
 
 // Config
-const steps_per_gen = 1500;
+const steps_per_gen = 1000;
 let gen = 0;
 let step = 0;
 
@@ -498,9 +654,9 @@ if (!training) {
 }
 
 
-if (!localStorage.getItem("brain")) localStorage.setItem('brain', "{\"fitness\":-79852.91506666942,\"brain\":{\"layers\":[{\"inputs\":[-0.02137174119843621,0.11099622936126252,-0.047879122394246666,-0.004123451061363657],\"outputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"biases\":[0.04095441548424866,-0.11350061844515014,0.09921157064924271,0.024268035069157836,-0.08979267659397498,0.003162736088979263,0.09667388679275374],\"weights\":[[-0.0006481733497199751,-0.045717197386417566,0.09451767505950141,-0.0007320629529811609,0.018331140029499447,-0.019045928977273415,-0.08868185055452045],[0.031612289497859124,0.12428124949197214,-0.01687123665420824,0.013429824610282718,-0.050785071498858865,0.005683015333104701,0.02413011496819181],[-0.09656842458117418,0.06963798039537848,-0.03644955117212821,-0.1033112300043343,-0.1824974942569167,0.13273830573952486,-0.03820928891135767],[-0.060596260436669235,-0.04263101854571571,0.02026557991616553,-0.19922994009095646,-0.027769872455340027,0.0809859561873496,0.07592413618220721]]},{\"inputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"outputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"biases\":[0.10060191564581851,0.0750077378759982,0.015094358449828864,-0.03627741261013865,0.011825881338341927,0.00647039897776997,0.03215207375391765],\"weights\":[[-0.007465685024560383,0.015939796315605676,0.0015353599478004718,-0.04920817467408902,0.013451206094227435,0.014645338023631195,-0.06704742022722411],[0.08807504438553841,0.0710020403045861,0.023371662593475673,0.11438271661138255,0.06394951445018819,-0.028085447415192706,-0.05663348715307049],[0.03304720284773742,0.10269676530807391,0.013114103585590576,-0.019524453968723127,0.040333386793709534,-0.03925351178964188,-0.012627658824033333],[0.049565134001931584,0.0006983659457811156,0.09334001682283533,-0.07315821432291264,0.06953594479347054,0.030213084302871025,0.006546351775161597],[0.06135565632966065,-0.04827298699234826,0.03112347552259101,-0.012092774627974588,-0.015547354854684305,0.07186779004576392,0.017466658265330354],[0.022849036091134183,-0.02566045478149357,-0.14022760186209926,0.024664561361443373,0.036515946713025375,-0.04934413129225954,0.014067613165421535],[-0.04419352758757091,0.0704132705673496,0.004708497029700486,0.05875191045253982,-0.002726616132706979,0.05342397763225214,0.05215902377746635]]},{\"inputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"outputs\":[1,1,0,1],\"biases\":[-0.05361388392075887,-0.020539873297679676,-0.009339673241524744,-0.010949945805380173],\"weights\":[[0.038729825968166834,0.003331361273977622,-0.0713988383250234,-0.021593381485938763],[0.029082446696769817,0.012692840990284712,0.009948980387291185,-0.06305064745566746],[-0.044311385410983006,-0.005922337940038113,-0.11280964396190278,-0.11164465348677138],[0.06271549576976718,-0.1343676545185808,0.02209361754321169,-0.0077261927960031096],[0.028632462026410975,-0.010271652856849538,-0.004605139810650052,-0.10668622302870821],[-0.007048046416734196,0.06136053186885656,-0.0425915739154361,-0.008118647472714804],[-0.02619672855260632,0.04822150638691121,-0.028542500563720388,-0.01535000200645547]]}]}}")
+// if (!localStorage.getItem("brain")) localStorage.setItem('brain', "{\"fitness\":-79852.91506666942,\"brain\":{\"layers\":[{\"inputs\":[-0.02137174119843621,0.11099622936126252,-0.047879122394246666,-0.004123451061363657],\"outputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"biases\":[0.04095441548424866,-0.11350061844515014,0.09921157064924271,0.024268035069157836,-0.08979267659397498,0.003162736088979263,0.09667388679275374],\"weights\":[[-0.0006481733497199751,-0.045717197386417566,0.09451767505950141,-0.0007320629529811609,0.018331140029499447,-0.019045928977273415,-0.08868185055452045],[0.031612289497859124,0.12428124949197214,-0.01687123665420824,0.013429824610282718,-0.050785071498858865,0.005683015333104701,0.02413011496819181],[-0.09656842458117418,0.06963798039537848,-0.03644955117212821,-0.1033112300043343,-0.1824974942569167,0.13273830573952486,-0.03820928891135767],[-0.060596260436669235,-0.04263101854571571,0.02026557991616553,-0.19922994009095646,-0.027769872455340027,0.0809859561873496,0.07592413618220721]]},{\"inputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"outputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"biases\":[0.10060191564581851,0.0750077378759982,0.015094358449828864,-0.03627741261013865,0.011825881338341927,0.00647039897776997,0.03215207375391765],\"weights\":[[-0.007465685024560383,0.015939796315605676,0.0015353599478004718,-0.04920817467408902,0.013451206094227435,0.014645338023631195,-0.06704742022722411],[0.08807504438553841,0.0710020403045861,0.023371662593475673,0.11438271661138255,0.06394951445018819,-0.028085447415192706,-0.05663348715307049],[0.03304720284773742,0.10269676530807391,0.013114103585590576,-0.019524453968723127,0.040333386793709534,-0.03925351178964188,-0.012627658824033333],[0.049565134001931584,0.0006983659457811156,0.09334001682283533,-0.07315821432291264,0.06953594479347054,0.030213084302871025,0.006546351775161597],[0.06135565632966065,-0.04827298699234826,0.03112347552259101,-0.012092774627974588,-0.015547354854684305,0.07186779004576392,0.017466658265330354],[0.022849036091134183,-0.02566045478149357,-0.14022760186209926,0.024664561361443373,0.036515946713025375,-0.04934413129225954,0.014067613165421535],[-0.04419352758757091,0.0704132705673496,0.004708497029700486,0.05875191045253982,-0.002726616132706979,0.05342397763225214,0.05215902377746635]]},{\"inputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"outputs\":[1,1,0,1],\"biases\":[-0.05361388392075887,-0.020539873297679676,-0.009339673241524744,-0.010949945805380173],\"weights\":[[0.038729825968166834,0.003331361273977622,-0.0713988383250234,-0.021593381485938763],[0.029082446696769817,0.012692840990284712,0.009948980387291185,-0.06305064745566746],[-0.044311385410983006,-0.005922337940038113,-0.11280964396190278,-0.11164465348677138],[0.06271549576976718,-0.1343676545185808,0.02209361754321169,-0.0077261927960031096],[0.028632462026410975,-0.010271652856849538,-0.004605139810650052,-0.10668622302870821],[-0.007048046416734196,0.06136053186885656,-0.0425915739154361,-0.008118647472714804],[-0.02619672855260632,0.04822150638691121,-0.028542500563720388,-0.01535000200645547]]}]}}")
   
-if (!training) balls[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+if (!training) drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
 
 // MAIN CODE PER FRAME FOR EACH OF THE AGENTS
 function frame() {
@@ -509,9 +665,9 @@ function frame() {
   ctx.globalAlpha = 0.3;
  
   // Loop through all agents to update/determine their fitness
-  // for (const agent of balls) {
-  for (var i = 0; i < balls.length; i++) {
-    const agent = balls[i];
+  // for (const agent of drones) {
+  for (var i = 0; i < drones.length; i++) {
+    const agent = drones[i];
 
     if (training) {
       // agent.fitness += 1 / (0.000001 + Math.sqrt(
@@ -522,16 +678,29 @@ function frame() {
       agent.fitness += Math.exp(-distance * 0.1);  // 0.1 controls scaling
     } else {
       ctx.globalAlpha = 1;
-      NN.visualize(balls[0].brain)
-      ctx.globalAlpha = 0.3;
+      // NN.visualize(drones[0].brain)
+      // ctx.globalAlpha = 0.3;
     }
 
     // console.log(i)
     agent.update(goalball.pos[0], goalball.pos[1]);
 
 
-    agent.color = "orange";
+    // agent.color = "orange";
     agent.draw();
+    // console.log(agent)
+    // agent.thrusters[0].setPower(0);
+    // agent.thrusters[1].setPower(0);
+
+    // agent.thrusters[0].setAngle(0);
+    // agent.thrusters[1].setAngle(0);
+    
+    agent.thrusters[0].update();
+    agent.thrusters[1].update();
+
+    // agent.thrusters[0].draw();
+    // agent.thrusters[1].draw();
+
   }
  
   ctx.globalAlpha = 1;
@@ -541,7 +710,7 @@ function frame() {
    
   if (training) {
     // Finds best agents
-    let bestAgents = (balls.sort((a,b) => b.fitness - a.fitness)).slice(0,3);
+    let bestAgents = (drones.sort((a,b) => b.fitness - a.fitness)).slice(0,3);
     // for (var agent of bestAgents) {
     for (var i = 0; i < bestAgents.length; i++) {
       // agent.color = "blue"
@@ -550,8 +719,8 @@ function frame() {
       // i == 0 ? console.log(agent.fitness) : null
 
       // make the color if #1: red, #2: green, #3: blue.
-      agent.color = i == 0 ? "red" : i == 1 ? "green" : "blue";
-      agent.draw();
+      // agent.color = i == 0 ? "red" : i == 1 ? "green" : "blue";
+      // agent.draw();
     }
    
     // Visualized progress over all generations.
@@ -584,7 +753,7 @@ function frame() {
  
       // Reset steps and remove all agents.
       step = 0;
-      balls = [];
+      drones = [];
      
       // Plot the new generation best agent.
       NN.plot(bestAgents[0].fitness, true);
@@ -593,21 +762,21 @@ function frame() {
       generation();
 
       // Decrease mutation factor.
-      if (mutation_factor < 0.001) mutation_factor = 0.001;
-      else mutation_factor -= 0.001;
+      if (mutation_factor < 0.0001) mutation_factor = 0.0001;
+      else mutation_factor -= 0.0001;
 
       // Change goal pos
       goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
      
       // Get best agents from last gen to stay.
-      balls[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
-      balls[1].brain = bestAgents[1].brain;
-      balls[2].brain = bestAgents[2].brain;
+      drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+      drones[1].brain = bestAgents[1].brain;
+      drones[2].brain = bestAgents[2].brain;
      
       // Mutate the rest.
-      for (let i = 3; i < balls.length; i++) {
-        balls[i].brain = JSON.parse(JSON.stringify(balls[i%bestAgents.length].brain));
-        NN.mutate(balls[i].brain, mutation_factor)
+      for (let i = 3; i < drones.length; i++) {
+        drones[i].brain = JSON.parse(JSON.stringify(drones[i%bestAgents.length].brain));
+        NN.mutate(drones[i].brain, mutation_factor)
       }
     }
   }
