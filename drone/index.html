@@ -119,37 +119,43 @@ class NN {
   }
 
   static tanh(x) {
-    return Math.tanh(x);
+    return Math.tanh(x/4);
   }
 
   static feedForward(initInputs, nn) {
     let outputs = Layer.feedForwardLayer(initInputs, nn.layers[0]);
     for (let layer = 1; layer < nn.layers.length; layer++) {
-      // var is_last_layer = layer == nn.layers.length-1;
-      outputs = Layer.feedForwardLayer(outputs, nn.layers[layer], false)
+      var is_last_layer = layer == nn.layers.length;
+      outputs = Layer.feedForwardLayer(outputs, nn.layers[layer], is_last_layer)
     }
 
     return outputs;
   }
 
-  static mutate(network, mutation_factor=1) {
+  static mutate(network, mutation_factor=0.1) {
     network.layers.forEach(layer => {
 
       for (let i = 0; i < layer.biases.length; i++) {
-        layer.biases[i] = lerp(
-          layer.biases[i],
-          Math.random()*2-1,
-          mutation_factor
-        )
+        // layer.biases[i] = lerp(
+        //   layer.biases[i],
+        //   Math.random()*2-1,
+        //   mutation_factor
+        // )
+
+        layer.biases[i] += (Math.random() * 2 - 1) * mutation_factor;
       }
 
       for (let i = 0; i < layer.weights.length; i++) {
         for (let j = 0; j < layer.weights[i].length; j++) {
-          layer.weights[i][j] = lerp(
-            layer.weights[i][j],
-            Math.random()*2-1,
-            mutation_factor
-          )          
+          // layer.weights[i][j] = lerp(
+          //   layer.weights[i][j],
+          //   Math.random()*2-1,
+          //   mutation_factor
+          // )
+
+          // ?
+          layer.weights[i][j] += (Math.random() * 2 - 1) * mutation_factor;
+
         }
       }
 
@@ -322,11 +328,15 @@ class Layer {
       } else {
         // Binary Class
         // Same as lectures.
-        if (sum>layer.biases[outputN]) {
-          layer.outputs[outputN]=1;
-        } else {
-          layer.outputs[outputN]=0;
-        }
+        // if (sum>layer.biases[outputN]) {
+        //   layer.outputs[outputN]=1;
+        // } else {
+        //   layer.outputs[outputN]=0;
+        // }
+
+        // In drones, don't do tanh
+        // skip this
+        layer.outputs[outputN] = sum+layer.biases[outputN]
       }
 
     }
@@ -421,8 +431,8 @@ class drone {
     // this.vel[0] *= .99; // Friction
     // this.vel[1] *= .99; // Friction
 
-    this.fitness -= Math.abs(this.vel[0])*10; // Penalize high velocity
-    this.fitness -= Math.abs(this.vel[1])*10; // Penalize high velocity
+    // this.fitness -= Math.abs(this.vel[0])*10; // Penalize high velocity
+    // this.fitness -= Math.abs(this.vel[1])*10; // Penalize high velocity
 
 
     // Max velocity
@@ -438,17 +448,17 @@ class drone {
     // If velocity away from goal, penalize
     const goalx = goalpos[0];
     const goaly = goalpos[1];
-    if (goalx - (this.vel[0] + this.pos[0]) < goalx - this.pos[0] && goalx - (this.vel[1] + this.pos[1]) < goaly - this.pos[1]) {
-      this.fitness += .5;
-    } else {
-      this.fitness -= .5;
-    }
+    // if (goalx - (this.vel[0] + this.pos[0]) < goalx - this.pos[0] && goalx - (this.vel[1] + this.pos[1]) < goaly - this.pos[1]) {
+    //   this.fitness += .5;
+    // } else {
+    //   this.fitness -= .5;
+    // }
 
     // this.fitness += .1;
 
     // if ((i[0] && i[1]) || (i[0] && i[2])) this.fitness -= 10;
     // if ((i[3] && i[1]) || (i[3] && i[2])) this.fitness -= 10;
-    this.fitness -= 0.1 * (Math.abs(this.vel[0]) + Math.abs(this.vel[1]));
+    // this.fitness -= 0.1 * (Math.abs(this.vel[0]) + Math.abs(this.vel[1]));
 
   }
 
@@ -463,10 +473,10 @@ class drone {
     const dy = goaly - this.pos[1];
 
     // Penalize if too far
-    this.fitness -= Math.sqrt( dx**2 + dy**2 );
+    // this.fitness -= Math.sqrt( dx**2 + dy**2 );
 
     // Penalize for high angular velocity
-    this.fitness -= this.angular_velocity;
+    // this.fitness -= this.angular_velocity;
 
     // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
     this.move(NN.feedForward([
@@ -545,8 +555,8 @@ class thruster {
 
 		this.angle = 0; // Angle of each thruster
 		this.max_angle = 0.5 * Math.PI; // Max left half PI and max right half PI
-		this.target_angle; // Ratio of 
-		this.angle_var_speed = .1; // How fast the thruster can rotate
+		this.target_angle;
+		this.angle_var_speed = .001; // How fast the thruster can rotate
 		this.angle_ratio;
 
     this.width = 20;
@@ -602,9 +612,16 @@ class thruster {
 // Doesn't need to be a class.
 class goal {
   constructor() {
+    /*
     this.pos = [
       Math.random() * windowWidth,
       Math.random() * windowHeight
+    ];
+    */
+
+    this.pos = [
+      windowWidth*3/4,
+      windowHeight/4
     ];
   }
 
@@ -620,7 +637,7 @@ class goal {
 // Initialize agents array, configure amount of agents, and the generation function.
 var drones = [];
 const training = true;
-const ballAmount = training ? 2000 : 1;
+const ballAmount = training ? 5000 : 1;
 function generation() {
   for (let i = 0; i < ballAmount; i++) {
     // let x = Math.random() * windowWidth;
@@ -658,6 +675,9 @@ if (!training) {
   
 if (!training) drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
 
+let previousBestFitness = -Infinity;
+let stagnation = 0;
+
 // MAIN CODE PER FRAME FOR EACH OF THE AGENTS
 function frame() {
   ctx.clearRect(0, 0, c.width, c.height);
@@ -675,7 +695,13 @@ function frame() {
       //     Math.pow(goalball.pos[1] - agent.pos[1], 2)
       // ))
       const distance = Math.sqrt((goalball.pos[0] - agent.pos[0])**2 + (goalball.pos[1] - agent.pos[1])**2);
-      agent.fitness += Math.exp(-distance * 0.1);  // 0.1 controls scaling
+      // agent.fitness += Math.exp(-distance * 0.1);  // 0.1 controls scaling
+      agent.fitness += 1 / ( 1 + distance )
+
+      if (distance < 50) {
+        agent.fitness += Math.pow(Math.cos(agent.angle), 2)
+      }
+
     } else {
       ctx.globalAlpha = 1;
       // NN.visualize(drones[0].brain)
@@ -684,10 +710,12 @@ function frame() {
 
     // console.log(i)
     agent.update(goalball.pos[0], goalball.pos[1]);
+    agent.thrusters[0].update();
+    agent.thrusters[1].update();
 
 
     // agent.color = "orange";
-    agent.draw();
+    // agent.draw();
     // console.log(agent)
     // agent.thrusters[0].setPower(0);
     // agent.thrusters[1].setPower(0);
@@ -695,8 +723,6 @@ function frame() {
     // agent.thrusters[0].setAngle(0);
     // agent.thrusters[1].setAngle(0);
     
-    agent.thrusters[0].update();
-    agent.thrusters[1].update();
 
     // agent.thrusters[0].draw();
     // agent.thrusters[1].draw();
@@ -715,6 +741,7 @@ function frame() {
     for (var i = 0; i < bestAgents.length; i++) {
       // agent.color = "blue"
       const agent = bestAgents[i];
+      agent.draw();
       // i == 0 ? console.log(agent.normx, agent.normy, agent.fitness) : null
       // i == 0 ? console.log(agent.fitness) : null
 
@@ -745,11 +772,36 @@ function frame() {
      
       // If agent did better than last time, save.
       // if (bestAgents[0].fitness > JSON.parse(localStorage.getItem("brain")).fitness ) {
-        localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
+        // localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
       // }
+      let storedBrain = JSON.parse(localStorage.getItem("brain"));
+      // if (!storedBrain || bestAgents[0].fitness > storedBrain.fitness) {
+          localStorage.setItem("brain", JSON.stringify(bestAgents[0]));
+      // }
+
      
       gen++
-      console.log(`Gen: ${gen}, best: ${bestAgents[0].fitness}`)
+      console.log(`Gen: ${gen}, best: ${bestAgents[0].fitness}, mutation factor: ${mutation_factor}`)
+
+
+      // Get best agents from last gen to stay
+      const numBest = Math.floor(drones.length * 0.1);
+      for (let i = 0; i < numBest; i++) {
+          drones[i].brain = JSON.parse(localStorage.getItem("brain")).brain;
+      }
+
+      // Adjust mutation rate adaptively
+      if (bestAgents[0].fitness <= previousBestFitness && stagnation >= 50) {
+          mutation_factor = Math.min(mutation_factor * 1.05, 0.3); // Slightly increase if stuck
+          stagnation++;
+      } else {
+          // mutation_factor *= 0.995; // Decrease normally if improving
+          mutation_factor = 1 / Math.sqrt(bestAgents[0].fitness);
+          mutation_factor = Math.max(0.001, Math.min(mutation_factor, 0.2)); // Keep in bounds
+          stagnation = 0;
+      }
+      previousBestFitness = bestAgents[0].fitness;
+
  
       // Reset steps and remove all agents.
       step = 0;
@@ -762,22 +814,45 @@ function frame() {
       generation();
 
       // Decrease mutation factor.
-      if (mutation_factor < 0.0001) mutation_factor = 0.0001;
-      else mutation_factor -= 0.0001;
+      // if (mutation_factor < 0.0001) mutation_factor = 0.0001;
+      // else mutation_factor -= 0.0001;
+      // mutation_factor *= 0.995; // Decrease by 0.5% per generation
 
       // Change goal pos
-      goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
+      // goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
      
       // Get best agents from last gen to stay.
       drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
       drones[1].brain = bestAgents[1].brain;
-      drones[2].brain = bestAgents[2].brain;
-     
-      // Mutate the rest.
-      for (let i = 3; i < drones.length; i++) {
-        drones[i].brain = JSON.parse(JSON.stringify(drones[i%bestAgents.length].brain));
-        NN.mutate(drones[i].brain, mutation_factor)
+      drones[2].brain = bestAgents[2].brain;    
+
+      // Function to pick parents using weighted probability
+      function selectParent(bestAgents) {
+          let totalFitness = bestAgents.reduce((sum, agent) => sum + agent.fitness, 0);
+          let pick = Math.random() * totalFitness;
+          let sum = 0;
+          for (let agent of bestAgents) {
+              sum += agent.fitness;
+              if (sum >= pick) return agent;
+          }
+          return bestAgents[0]; // Fallback
       }
+
+      // Mutate the rest
+      for (let i = numBest; i < drones.length; i++) {
+          let parent = selectParent(bestAgents);
+          drones[i].brain = JSON.parse(JSON.stringify(parent.brain));
+          NN.mutate(drones[i].brain, mutation_factor);
+      }
+
+      // Mutate the rest.
+      // for (let i = 3; i < drones.length; i++) {
+      //   drones[i].brain = JSON.parse(JSON.stringify(drones[i%bestAgents.length].brain));
+        
+      //   // const mutation_proba = 1.0 / Math.sqrt(drones[i&bestAgents.length].fitness);
+      //   NN.mutate(drones[i].brain, mutation_factor)
+      //   // NN.mutate(drones[i].brain, mutation_proba)
+      // }
     }
   }
 
