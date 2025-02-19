@@ -214,9 +214,10 @@ class NN {
     return child;
   }
   
-  static createChild(dna1, dna2, mutationFactor = 0.1) {
+  static createChild(dna1, dna2, p1_f, p2_f) {
     let child = NN.crossover(dna1, dna2);
-    NN.mutate_better(child, mutationFactor);
+    const mutation_proba = 1.0 / Math.sqrt(p1_f + p2_f);
+    NN.mutate_better(child, mutation_proba);
     return child;
   }
 
@@ -784,7 +785,10 @@ function frame() {
 
   }
  
+  
   ctx.globalAlpha = 1;
+  
+  drones[0].draw();
  
   // Draw the main objective
   goalball.draw();
@@ -846,15 +850,15 @@ function frame() {
       }
 
       // Adjust mutation rate adaptively
-      if (bestAgents[0].fitness <= previousBestFitness && stagnation >= 50) {
-        mutation_factor = Math.min(mutation_factor * 1.05, 0.3); // Slightly increase if stuck
-        stagnation++;
-      } else {
-        // mutation_factor *= 0.995; // Decrease normally if improving
-        mutation_factor = Math.max(0.001, Math.min(0.3, 1 / (bestAgents[0].fitness + 1)));  // Keep in bounds
-        stagnation = 0;
-      }
-      previousBestFitness = bestAgents[0].fitness;
+      // if (bestAgents[0].fitness <= previousBestFitness && stagnation >= 50) {
+      //   mutation_factor = Math.min(mutation_factor * 1.05, 0.3); // Slightly increase if stuck
+      //   stagnation++;
+      // } else {
+      //   // mutation_factor *= 0.995; // Decrease normally if improving
+      //   mutation_factor = Math.max(0.001, Math.min(0.3, 1 / (bestAgents[0].fitness + 1)));  // Keep in bounds
+      //   stagnation = 0;
+      // }
+      // previousBestFitness = bestAgents[0].fitness;
 
  
       // Reset steps and remove all agents.
@@ -902,7 +906,7 @@ function frame() {
           if (parent1 === parent2) parent2 = selectParent(bestAgents);
 
           // Create a child with crossover and mutation
-          drones[i].brain = NN.createChild(parent1.brain, parent2.brain, mutation_factor);
+          drones[i].brain = NN.createChild(parent1.brain, parent2.brain, parent1.fitness, parent2.fitness);
       }
 
 
