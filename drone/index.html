@@ -136,25 +136,25 @@ class NN {
     network.layers.forEach(layer => {
 
       for (let i = 0; i < layer.biases.length; i++) {
-        // layer.biases[i] = lerp(
-        //   layer.biases[i],
-        //   Math.random()*2-1,
-        //   mutation_factor
-        // )
+        layer.biases[i] = lerp(
+          layer.biases[i],
+          Math.random()*2-1,
+          mutation_factor
+        )
 
-        layer.biases[i] += (Math.random() * 2 - 1) * mutation_factor;
+        // layer.biases[i] += (Math.random() * 2 - 1) * mutation_factor;
       }
 
       for (let i = 0; i < layer.weights.length; i++) {
         for (let j = 0; j < layer.weights[i].length; j++) {
-          // layer.weights[i][j] = lerp(
-          //   layer.weights[i][j],
-          //   Math.random()*2-1,
-          //   mutation_factor
-          // )
+          layer.weights[i][j] = lerp(
+            layer.weights[i][j],
+            Math.random()*2-1,
+            mutation_factor
+          )
 
           // ?
-          layer.weights[i][j] += (Math.random() * 2 - 1) * mutation_factor;
+          // layer.weights[i][j] += (Math.random() * 2 - 1) * mutation_factor;
 
         }
       }
@@ -163,6 +163,61 @@ class NN {
 
     // Implement new mutate like NEAT
     // New neuron, change weight, remove neuron, etc.
+  }
+
+  static mutate_better(network, mutationFactor = 0.1) {
+        network.layers.forEach(layer => {
+            // Mutate biases
+            for (let i = 0; i < layer.biases.length; i++) {
+                if (Math.random() < mutationFactor) {
+                    layer.biases[i] += (Math.random() * 2 - 1) * mutationFactor;
+                }
+            }
+
+            // Mutate weights
+            for (let i = 0; i < layer.weights.length; i++) {
+                for (let j = 0; j < layer.weights[i].length; j++) {
+                    if (Math.random() < mutationFactor) {
+                        layer.weights[i][j] += (Math.random() * 2 - 1) * mutationFactor;
+                    }
+                }
+            }
+        });
+    }
+
+  static crossover(dna1, dna2) {
+    let child = JSON.parse(JSON.stringify(dna1)); // Deep copy parent1
+
+    // Loop through each layer
+    for (let i = 0; i < dna1.layers.length; i++) {
+      let layer1 = dna1.layers[i];
+      let layer2 = dna2.layers[i];
+      let childLayer = child.layers[i];
+
+      // Choose a random crossover point per layer
+      let crossBias = Math.floor(Math.random() * layer1.biases.length);
+      let crossWeight = Math.floor(Math.random() * layer1.weights.length);
+
+      // Crossover biases
+      for (let j = crossBias; j < childLayer.biases.length; j++) {
+        childLayer.biases[j] = layer2.biases[j];
+      }
+
+      // Crossover weights
+      for (let j = crossWeight; j < childLayer.weights.length; j++) {
+        for (let k = 0; k < childLayer.weights[j].length; k++) {
+          childLayer.weights[j][k] = layer2.weights[j][k];
+        }
+      }
+    }
+
+    return child;
+  }
+  
+  static createChild(dna1, dna2, mutationFactor = 0.1) {
+    let child = NN.crossover(dna1, dna2);
+    NN.mutate_better(child, mutationFactor);
+    return child;
   }
 
 
@@ -775,9 +830,9 @@ function frame() {
         // localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
       // }
       let storedBrain = JSON.parse(localStorage.getItem("brain"));
-      // if (!storedBrain || bestAgents[0].fitness > storedBrain.fitness) {
+      if (!storedBrain || bestAgents[0].fitness > storedBrain.fitness) {
           localStorage.setItem("brain", JSON.stringify(bestAgents[0]));
-      // }
+      }
 
      
       gen++
@@ -787,18 +842,17 @@ function frame() {
       // Get best agents from last gen to stay
       const numBest = Math.floor(drones.length * 0.1);
       for (let i = 0; i < numBest; i++) {
-          drones[i].brain = JSON.parse(localStorage.getItem("brain")).brain;
+        drones[i].brain = JSON.parse(localStorage.getItem("brain")).brain;
       }
 
       // Adjust mutation rate adaptively
       if (bestAgents[0].fitness <= previousBestFitness && stagnation >= 50) {
-          mutation_factor = Math.min(mutation_factor * 1.05, 0.3); // Slightly increase if stuck
-          stagnation++;
+        mutation_factor = Math.min(mutation_factor * 1.05, 0.3); // Slightly increase if stuck
+        stagnation++;
       } else {
-          // mutation_factor *= 0.995; // Decrease normally if improving
-          mutation_factor = 1 / Math.sqrt(bestAgents[0].fitness);
-          mutation_factor = Math.max(0.001, Math.min(mutation_factor, 0.2)); // Keep in bounds
-          stagnation = 0;
+        // mutation_factor *= 0.995; // Decrease normally if improving
+        mutation_factor = Math.max(0.001, Math.min(0.3, 1 / (bestAgents[0].fitness + 1)));  // Keep in bounds
+        stagnation = 0;
       }
       previousBestFitness = bestAgents[0].fitness;
 
@@ -824,26 +878,33 @@ function frame() {
       // Get best agents from last gen to stay.
       drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
       drones[1].brain = bestAgents[1].brain;
-      drones[2].brain = bestAgents[2].brain;    
+      drones[2].brain = bestAgents[2].brain;
 
       // Function to pick parents using weighted probability
       function selectParent(bestAgents) {
-          let totalFitness = bestAgents.reduce((sum, agent) => sum + agent.fitness, 0);
-          let pick = Math.random() * totalFitness;
-          let sum = 0;
-          for (let agent of bestAgents) {
-              sum += agent.fitness;
-              if (sum >= pick) return agent;
-          }
-          return bestAgents[0]; // Fallback
+        let totalFitness = bestAgents.reduce((sum, agent) => sum + agent.fitness, 0);
+        let pick = Math.random() * totalFitness;
+        let sum = 0;
+
+        for (let agent of bestAgents) {
+          sum += agent.fitness;
+          if (sum >= pick) return agent;
+        }
+        return bestAgents[Math.floor(Math.random() * bestAgents.length)]; // Fallback: Random agent for diversity
       }
 
-      // Mutate the rest
+      // Mutate the rest with crossover
       for (let i = numBest; i < drones.length; i++) {
-          let parent = selectParent(bestAgents);
-          drones[i].brain = JSON.parse(JSON.stringify(parent.brain));
-          NN.mutate(drones[i].brain, mutation_factor);
+          let parent1 = selectParent(bestAgents);
+          let parent2 = selectParent(bestAgents);
+
+          // Ensure different parents (fallback to single parent if needed)
+          if (parent1 === parent2) parent2 = selectParent(bestAgents);
+
+          // Create a child with crossover and mutation
+          drones[i].brain = NN.createChild(parent1.brain, parent2.brain, mutation_factor);
       }
+
 
       // Mutate the rest.
       // for (let i = 3; i < drones.length; i++) {
