@@ -434,7 +434,7 @@ class drone {
     // Brain is a neural network with 4 inputs, 2 hidden layers of size 4 each, and 4 outputs.
     // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
     // OUTPUTS: 4 values representing power/angle.
-    this.brain = new NN([7, 9, 9, 4]);
+    this.brain = new NN([7, 9, 4]);
     // console.log(this.brain)
   }
 
@@ -693,7 +693,7 @@ class goal {
 // Initialize agents array, configure amount of agents, and the generation function.
 var drones = [];
 const training = true;
-const ballAmount = training ? 5000 : 1;
+const ballAmount = training ? 10000 : 1;
 function generation() {
   for (let i = 0; i < ballAmount; i++) {
     // let x = Math.random() * windowWidth;
@@ -877,7 +877,7 @@ function frame() {
       // mutation_factor *= 0.995; // Decrease by 0.5% per generation
 
       // Change goal pos
-      // goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
+      goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
      
       // Get best agents from last gen to stay.
       drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
