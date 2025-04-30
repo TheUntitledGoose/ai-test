@@ -216,7 +216,7 @@ class NN {
   
   static createChild(dna1, dna2, p1_f, p2_f) {
     let child = NN.crossover(dna1, dna2);
-    const mutation_proba = 1.0 / Math.sqrt(p1_f + p2_f);
+    const mutation_proba = 1.0 / Math.sqrt((p1_f + p2_f)/2);
     NN.mutate_better(child, mutation_proba);
     return child;
   }
@@ -434,7 +434,15 @@ class drone {
     // Brain is a neural network with 4 inputs, 2 hidden layers of size 4 each, and 4 outputs.
     // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
     // OUTPUTS: 4 values representing power/angle.
-    this.brain = new NN([7, 9, 4]);
+    // this.brain = new NN([7, 9, 9, 4]);
+    const randomLength = Math.floor(Math.random() * 3) + 3;
+    const randomNeurons = Math.floor(Math.random() * 5) + 4;
+    let brain = new Array(randomLength).fill(0).map(() => Math.floor(Math.random() * randomNeurons) + 2);
+    brain[0] = 7;
+    brain[brain.length-1] = 4;
+    // console.log(brain)
+
+    this.brain = new NN(brain);
     // console.log(this.brain)
   }
 
@@ -479,6 +487,8 @@ class drone {
     this.angular_velocity += this.getTorque();
 		this.angle += this.angular_velocity;
 
+    // normalize angle
+    this.angle %= Math.PI * 2;
 
     // Update velocity
     this.vel[0] += this.acc[0];
@@ -695,7 +705,7 @@ var drones = [];
 const training = true;
 const ballAmount = training ? 10000 : 1;
 function generation() {
-  for (let i = 0; i < ballAmount; i++) {
+  for (let i = 0; i < ballAmount-drones.length-1; i++) {
     // let x = Math.random() * windowWidth;
     // let y = Math.random() * windowHeight;
     // drones.push(new drone(x, y));
@@ -716,7 +726,6 @@ let gen = 0;
 let step = 0;
 
 // have a higher mutation rate for the first few generations.
-// mutation_factor starts at .10 and decreases by .001 each generation.
 let mutation_factor = .15;
 
 if (!training) {
@@ -729,7 +738,8 @@ if (!training) {
 
 // if (!localStorage.getItem("brain")) localStorage.setItem('brain', "{\"fitness\":-79852.91506666942,\"brain\":{\"layers\":[{\"inputs\":[-0.02137174119843621,0.11099622936126252,-0.047879122394246666,-0.004123451061363657],\"outputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"biases\":[0.04095441548424866,-0.11350061844515014,0.09921157064924271,0.024268035069157836,-0.08979267659397498,0.003162736088979263,0.09667388679275374],\"weights\":[[-0.0006481733497199751,-0.045717197386417566,0.09451767505950141,-0.0007320629529811609,0.018331140029499447,-0.019045928977273415,-0.08868185055452045],[0.031612289497859124,0.12428124949197214,-0.01687123665420824,0.013429824610282718,-0.050785071498858865,0.005683015333104701,0.02413011496819181],[-0.09656842458117418,0.06963798039537848,-0.03644955117212821,-0.1033112300043343,-0.1824974942569167,0.13273830573952486,-0.03820928891135767],[-0.060596260436669235,-0.04263101854571571,0.02026557991616553,-0.19922994009095646,-0.027769872455340027,0.0809859561873496,0.07592413618220721]]},{\"inputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"outputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"biases\":[0.10060191564581851,0.0750077378759982,0.015094358449828864,-0.03627741261013865,0.011825881338341927,0.00647039897776997,0.03215207375391765],\"weights\":[[-0.007465685024560383,0.015939796315605676,0.0015353599478004718,-0.04920817467408902,0.013451206094227435,0.014645338023631195,-0.06704742022722411],[0.08807504438553841,0.0710020403045861,0.023371662593475673,0.11438271661138255,0.06394951445018819,-0.028085447415192706,-0.05663348715307049],[0.03304720284773742,0.10269676530807391,0.013114103585590576,-0.019524453968723127,0.040333386793709534,-0.03925351178964188,-0.012627658824033333],[0.049565134001931584,0.0006983659457811156,0.09334001682283533,-0.07315821432291264,0.06953594479347054,0.030213084302871025,0.006546351775161597],[0.06135565632966065,-0.04827298699234826,0.03112347552259101,-0.012092774627974588,-0.015547354854684305,0.07186779004576392,0.017466658265330354],[0.022849036091134183,-0.02566045478149357,-0.14022760186209926,0.024664561361443373,0.036515946713025375,-0.04934413129225954,0.014067613165421535],[-0.04419352758757091,0.0704132705673496,0.004708497029700486,0.05875191045253982,-0.002726616132706979,0.05342397763225214,0.05215902377746635]]},{\"inputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"outputs\":[1,1,0,1],\"biases\":[-0.05361388392075887,-0.020539873297679676,-0.009339673241524744,-0.010949945805380173],\"weights\":[[0.038729825968166834,0.003331361273977622,-0.0713988383250234,-0.021593381485938763],[0.029082446696769817,0.012692840990284712,0.009948980387291185,-0.06305064745566746],[-0.044311385410983006,-0.005922337940038113,-0.11280964396190278,-0.11164465348677138],[0.06271549576976718,-0.1343676545185808,0.02209361754321169,-0.0077261927960031096],[0.028632462026410975,-0.010271652856849538,-0.004605139810650052,-0.10668622302870821],[-0.007048046416734196,0.06136053186885656,-0.0425915739154361,-0.008118647472714804],[-0.02619672855260632,0.04822150638691121,-0.028542500563720388,-0.01535000200645547]]}]}}")
   
-if (!training) drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+// if (!training) drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
 
 let previousBestFitness = -Infinity;
 let stagnation = 0;
@@ -738,7 +748,7 @@ let stagnation = 0;
 function frame() {
   ctx.clearRect(0, 0, c.width, c.height);
 
-  ctx.globalAlpha = 0.3;
+  // ctx.globalAlpha = 0.3;
  
   // Loop through all agents to update/determine their fitness
   // for (const agent of drones) {
@@ -754,8 +764,11 @@ function frame() {
       // agent.fitness += Math.exp(-distance * 0.1);  // 0.1 controls scaling
       agent.fitness += 1 / ( 1 + distance )
 
+      agent.fitness -= Math.abs(agent.angular_velocity * 0.5); // Penalize angular velocity
+
+
       if (distance < 50) {
-        agent.fitness += Math.pow(Math.cos(agent.angle), 2)
+        agent.fitness += Math.pow(Math.cos(agent.angle)*10, 2)
       }
 
     } else {
@@ -788,7 +801,7 @@ function frame() {
   
   ctx.globalAlpha = 1;
   
-  drones[0].draw();
+  // drones[0].draw();
  
   // Draw the main objective
   goalball.draw();
@@ -798,8 +811,9 @@ function frame() {
     let bestAgents = (drones.sort((a,b) => b.fitness - a.fitness)).slice(0,3);
     // for (var agent of bestAgents) {
     for (var i = 0; i < bestAgents.length; i++) {
-      // agent.color = "blue"
+      // const agent = bestAgents[i];
       const agent = bestAgents[i];
+      agent.color = "#FFD700"
       agent.draw();
       // i == 0 ? console.log(agent.normx, agent.normy, agent.fitness) : null
       // i == 0 ? console.log(agent.fitness) : null
@@ -808,6 +822,7 @@ function frame() {
       // agent.color = i == 0 ? "red" : i == 1 ? "green" : "blue";
       // agent.draw();
     }
+    
    
     // Visualized progress over all generations.
     // It's a hacky solution so it doesn't work quite alright.
@@ -840,14 +855,7 @@ function frame() {
 
      
       gen++
-      console.log(`Gen: ${gen}, best: ${bestAgents[0].fitness}, mutation factor: ${mutation_factor}`)
-
-
-      // Get best agents from last gen to stay
-      const numBest = Math.floor(drones.length * 0.1);
-      for (let i = 0; i < numBest; i++) {
-        drones[i].brain = JSON.parse(localStorage.getItem("brain")).brain;
-      }
+      console.log(`Gen: ${gen}, best: ${bestAgents[0].fitness}`)
 
       // Adjust mutation rate adaptively
       // if (bestAgents[0].fitness <= previousBestFitness && stagnation >= 50) {
@@ -860,10 +868,17 @@ function frame() {
       // }
       // previousBestFitness = bestAgents[0].fitness;
 
+      // Get best agents from last gen to stay
+      const numBest = Math.floor(drones.length * 0.3);
+      // Only half of best get best brain to ensure diversity.
+      for (let i = 0; i < numBest/2; i++) {
+        drones[i].brain = bestAgents[0].brain;
+        // drones[i].brain = JSON.parse(localStorage.getItem("brain")).brain;
+      }
  
       // Reset steps and remove all agents.
       step = 0;
-      drones = [];
+      drones = drones.splice(numBest);
      
       // Plot the new generation best agent.
       NN.plot(bestAgents[0].fitness, true);
@@ -872,15 +887,16 @@ function frame() {
       generation();
 
       // Decrease mutation factor.
-      // if (mutation_factor < 0.0001) mutation_factor = 0.0001;
-      // else mutation_factor -= 0.0001;
+      // if (mutation_factor <= 0.01) mutation_factor = 0.01;
+      // else mutation_factor -= 0.001;
       // mutation_factor *= 0.995; // Decrease by 0.5% per generation
 
       // Change goal pos
-      goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
+      // goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
      
       // Get best agents from last gen to stay.
-      drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+      // drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+      drones[0].brain = bestAgents[0].brain;
       drones[1].brain = bestAgents[1].brain;
       drones[2].brain = bestAgents[2].brain;
 
@@ -898,17 +914,27 @@ function frame() {
       }
 
       // Mutate the rest with crossover
-      for (let i = numBest; i < drones.length; i++) {
+      for (let i = 1; i < drones.length*4/5; i++) {
           let parent1 = selectParent(bestAgents);
           let parent2 = selectParent(bestAgents);
 
-          // Ensure different parents (fallback to single parent if needed)
+          // Ensure different parents
           if (parent1 === parent2) parent2 = selectParent(bestAgents);
 
           // Create a child with crossover and mutation
           drones[i].brain = NN.createChild(parent1.brain, parent2.brain, parent1.fitness, parent2.fitness);
       }
 
+
+      // reset all drone positions and velocities.
+      for (let i = 0; i < drones.length; i++) {
+        drones[i].pos = [windowWidth/2, windowHeight/2];
+        drones[i].vel = [0, 0];
+        drones[i].acc = [0, 0];
+        drones[i].angle = 0;
+        drones[i].angular_velocity = 0;
+        drones[i].fitness = 0;
+      }
 
       // Mutate the rest.
       // for (let i = 3; i < drones.length; i++) {
