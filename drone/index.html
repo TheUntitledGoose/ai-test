@@ -189,8 +189,9 @@ class NN {
   
   static createChild(dna1, dna2, p1_f, p2_f, i) {
     let child = NN.crossover(dna1, dna2);
-    const mutation_proba = 1.0 / (Math.sqrt(p1_f + p2_f));
-    // const mutation_proba = 0.01;
+    // console.log(Math.sqrt(Math.sqrt(p1_f + p2_f)))
+    // const mutation_proba = 1.0 / ( Math.sqrt(Math.sqrt(p1_f + p2_f)) );
+    const mutation_proba = 0.1;
     // console.log(mutation_proba)
     NN.mutate_better(child, mutation_proba);
     return child;
@@ -246,25 +247,25 @@ class NN {
     text(
       (network.layers.length)*between+offset*2,
       (a)+offset/1.5,
-      "UP"
+      "Power 1"
     )
 
     text(
       (network.layers.length)*between+offset*2,
       (a*2)+offset/1.5,
-      "LEFT"
+      "Angle 1"
     )
 
     text(
       (network.layers.length)*between+offset*2,
       (a*3)+offset/1.5,
-      "RIGHT"
+      "Power 2"
     )
 
     text(
       (network.layers.length)*between+offset*2,
       (a*4)+offset/1.5,
-      "DOWN"
+      "Angle 2"
     )
   }
 
@@ -400,6 +401,8 @@ class drone {
     this.goalball.pos = stages[this.stage];
 
     this.dead = false;
+
+    this.timeOut = 0;
 
 
     // Each drone will have 2 thrusters
@@ -604,9 +607,9 @@ class thruster {
     this.max_power = .25; // acc
 
 		this.angle = 0; // Angle of each thruster
-		this.max_angle = 0.5 * Math.PI; // Max left half PI and max right half PI
+		this.max_angle = 1 * Math.PI; // Max left half PI and max right half PI
 		this.target_angle;
-		this.angle_var_speed = .0001; // How fast the thruster can rotate
+		this.angle_var_speed = .01; // How fast the thruster can rotate
 		this.angle_ratio;
 
     this.width = 20;
@@ -706,9 +709,10 @@ var goalball = new goal()
 
 
 // Config
-let steps_per_gen = 2000;
+let steps_per_gen = 6000;
 let gen = 0;
 let step = 0;
+const numBest = Math.floor(ballAmount * 0.3);
 
 if (!training) {
   document.addEventListener('mousemove', function(e) {
@@ -775,7 +779,7 @@ function frame() {
       // agent.fitness -= Math.abs(agent.angular_velocity * 100); // Penalize angular velocity
 
       // reward for staying up right
-      agent.fitness += Math.cos(agent.angle) / 2;
+      agent.fitness += Math.cos(agent.angle);
 
 
 
@@ -798,9 +802,14 @@ function frame() {
           agent.stage += 1;
           agent.fitness *= 10;
         }
-      } 
-      if ((agent.pos[0] < 0-windowWidth/2 || agent.pos[0] > windowWidth+windowWidth/2 
-      || agent.pos[1] < 0-windowHeight/2 || agent.pos[1] > windowHeight+windowWidth/2) || (agent.angle <= -Math.PI || agent.angle >= Math.PI)) {
+      } else {
+        agent.timeOut++;
+      }
+
+
+      if (
+        ((agent.pos[0] < -windowWidth/2 || agent.pos[0] > windowWidth*3/2) 
+      || (agent.pos[1] < -windowHeight/2 || agent.pos[1] > windowHeight*3/2)) || (agent.angle <= -Math.PI || agent.angle >= Math.PI)) {
         agent.dead = true;
         if ((agent.angle <= -Math.PI || agent.angle >= Math.PI)) {
           agent.fitness /= 10;
@@ -809,15 +818,14 @@ function frame() {
         dead++
       }
 
-    } else {
-      ctx.globalAlpha = 1;
-      // NN.visualize(drones[0].brain)
-    }
+    } 
+    // ctx.globalAlpha = 1;
+    
     
     // console.log(i)
     agent.update();
-    agent.thrusters[0].update();
-    agent.thrusters[1].update();
+    // agent.thrusters[0].update();
+    // agent.thrusters[1].update();
 
     // agent.draw();
     // console.log(agent)
@@ -831,8 +839,8 @@ function frame() {
 
   }
  
-  drones[0].draw()
-  drones[0].goalball.draw()
+  // drones[0].draw()
+  // drones[0].goalball.draw()
   
   
   // drones[0].draw();
@@ -842,10 +850,10 @@ function frame() {
    
   if (training) {
     // Finds best agents
-    let bestAgents = (drones.toSorted((a,b) => b.fitness - a.fitness)).slice(0,500);
+    let bestAgents = (drones.toSorted((a,b) => b.fitness - a.fitness)).slice(0,numBest);
     // for (var agent of bestAgents) {
-    for (var i = 0; i < 500; i++) {
-      // const agent = bestAgents[i];\
+    for (var i = 0; i < numBest; i++) {
+      // const agent = bestAgents[i];
       const agent = bestAgents[i];
       if (agent.dead) continue;
       agent.color = "#FFD700"
@@ -878,6 +886,11 @@ function frame() {
     // || (bestAgents[0].fitness > threshold)    
     if(step>=steps_per_gen || dead == drones.length ) {
 
+      // for (const drone of drones) {
+      //   // const points = drone.goalball - dist; // distance to goalball after the alloted time is depleted
+      //   drone.fitness += Math.max(0, (1 / (1 + drone.timeOut) ))
+      // }
+
       // If brain if it doesn't exist, create.
       if (!localStorage.getItem("brain")) localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
      
@@ -906,16 +919,15 @@ function frame() {
       // previousBestFitness = bestAgents[0].fitness;
 
       // Get best agents from last gen to stay
-      const numBest = Math.floor(drones.length * 0.3);
       // Only half of best get best brain to ensure diversity.
-      for (let i = 1; i < Math.floor(numBest/2); i++) {
-        drones[i].brain = bestAgents[0].brain;
+      for (let i = 0; i < Math.floor(numBest/2); i++) {
+        drones[i].brain = bestAgents[i].brain;
         // drones[i].brain = JSON.parse(localStorage.getItem("brain")).brain;
       }
  
       // Reset steps and remove all agents.
       step = 0;
-      drones = drones.splice(numBest);
+      drones.splice(numBest);
      
       // Plot the new generation best agent.
       NN.plot(bestAgents[0].fitness, true);
@@ -929,28 +941,78 @@ function frame() {
       // mutation_factor *= 0.995; // Decrease by 0.5% per generation
 
       // Change goal pos
-      goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
+      // goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
      
       // Get best agents from last gen to stay.
       // drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
-      for (let i = 0; i < bestAgents.length; i++) {
-        if (bestAgents[i].fitness < drones[i].fitness) drones[i].brain = bestAgents[i].brain;
-      }
+
+      // for (let i = 0; i < bestAgents.length; i++) {
+      //   if (bestAgents[i].fitness < drones[i].fitness) drones[i].brain = bestAgents[i].brain;
+      // }
+
       // if (bestAgents[1].fitness > drones[1].fitness) drones[1].brain = bestAgents[1].brain;
       // if (bestAgents[2].fitness > drones[2].fitness) drones[2].brain = bestAgents[2].brain;
 
 
       // Function to pick parents using weighted probability
-      function selectParent(bestAgents) {
-        let totalFitness = bestAgents.reduce((sum, agent) => sum + agent.fitness, 0);
-        let pick = Math.random() * totalFitness;
-        let sum = 0;
+      // function selectParent(bestAgents) {
+      //   let totalFitness = bestAgents.reduce((sum, agent) => sum + agent.fitness, 0);
+      //   let pick = Math.random() * totalFitness;
+      //   let sum = 0;
 
-        for (let agent of bestAgents) {
-          sum += agent.fitness;
-          if (sum >= pick) return agent;
-        }
-        return bestAgents[Math.floor(Math.random() * bestAgents.length)]; // Fallback: Random agent for diversity
+      //   for (let agent of bestAgents) {
+      //     sum += agent.fitness;
+      //     if (sum >= pick) return agent;
+      //   }
+      //   return bestAgents[Math.floor(Math.random() * bestAgents.length)]; // Fallback: Random agent for diversity
+      // }
+
+      /**
+       * Selects a parent agent from a population using roulette wheel selection.
+       * Agents with higher fitness values have a proportionally higher chance of being selected.
+       *
+       * @param {Array<Object>} population An array of agent objects, each with a 'fitness' property.
+       * @returns {Object|null} The selected parent agent, or null if the population is empty.
+       */
+      function selectParent(population) {
+          // 1. Handle empty population immediately
+          if (!population || population.length === 0) {
+              console.warn("Attempted to select a parent from an empty population. Returning null.");
+              return null;
+          }
+
+          // 2. Calculate total fitness
+          // Using reduce is good, but ensure fitness values are non-negative.
+          const totalFitness = population.reduce((sum, agent) => sum + Math.max(0, agent.fitness), 0);
+
+          // 3. Handle case where total fitness is zero (e.g., all agents have 0 or negative fitness)
+          if (totalFitness <= 0) {
+              // If all fitness is zero or negative, no selection pressure can be applied.
+              // Fallback to purely random selection to maintain diversity or try to escape local optima.
+              console.warn("Total fitness is zero or negative. Falling back to random parent selection.");
+              return population[Math.floor(Math.random() * population.length)];
+          }
+
+          // 4. Generate a random pick point on the roulette wheel
+          // Math.random() generates a number between 0 (inclusive) and 1 (exclusive).
+          const pick = Math.random() * totalFitness;
+
+          // 5. Spin the roulette wheel
+          let currentSum = 0;
+          for (let agent of population) {
+              // Only consider positive fitness for selection
+              const agentFitness = Math.max(0, agent.fitness);
+              currentSum += agentFitness;
+              if (currentSum >= pick) {
+                  return agent; // Found the parent
+              }
+          }
+
+          // 6. Fallback (should ideally not be reached with correct logic, but good for robustness)
+          // This could happen due to floating point inaccuracies if pick is exactly totalFitness
+          // or if the sum just barely misses the pick threshold.
+          console.warn("Roulette wheel selection did not find a parent. Returning the last agent.");
+          return population[population.length - 1];
       }
 
       // Mutate the rest with crossover
@@ -977,6 +1039,7 @@ function frame() {
         drones[i].stage = 0;
         drones[i].time = 0;
         drones[i].dead = false;
+        drones[i].timeOut = 0;
       }
       dead = 0;
 
