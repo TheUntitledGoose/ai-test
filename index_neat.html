@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Test</title>
+  <style>body {background-color: black;}</style>
+</head>
+<body style='overflow: hidden; margin: 0;'>
+  <canvas id='myCanvas' width=1000 height=500></canvas>
+<script>
+
+// EXPLANATION
+// Up ahead are some function just for some reused things I'm doing
+// The "main" animate function is on line 745
+
+// Maybe I didn't use the activation function correctly?
+// Maybe my rewards are off?
+
+var c = document.getElementById("myCanvas");
+let ctx = c.getContext("2d");
+
+let windowWidth = window.innerWidth;
+let windowHeight = window.innerHeight;
+
+c.height = windowHeight;
+c.width = windowWidth;
+
+const deltaTime = 10
+
+const plotHistory = [];
+
+const stages = [
+  [windowWidth*3/4,windowHeight/4],
+  [windowWidth/4,windowHeight/4],
+  [windowWidth*3/4,windowHeight*3/4],
+  [windowWidth/3,windowHeight/5],
+  [windowWidth*4/9,windowHeight*2/7]
+]
+
+function addVector(vec1, vec2) {
+  return [vec1[0] + vec2[0], vec1[1] + vec2[1]]
+}
+
+function subVector(vec1, vec2) {
+  return [vec1[0] - vec2[0], vec1[1] - vec2[1]]
+}
+
+function mulVector(vec1, vec2) {
+  return [vec1[0] * vec2[0], vec1[1] * vec2[1]]
+}
+
+function divVector(vec1, vec2) {
+  return [vec1[0] / vec2[0], vec1[1] / vec2[1]]
+}
+
+function minVector(vec1, vec2) {
+  return [Math.min(vec1[0], vec2), Math.min(vec1[1], vec2)]
+}
+
+function lerp(A,B,t){
+  return A+(B-A)*t;
+}
+
+function circle(x=50,y=50,rad=10,clr="orange") {
+  ctx.beginPath();
+  ctx.fillStyle = clr;
+  ctx.arc(x,y, rad, 0, 2 * Math.PI);
+  ctx.fill();
+}
+
+function line(x1=50,y1=50,x2=100,y2=100,clr="orange") {
+  ctx.beginPath();
+  ctx.strokeStyle = clr;
+  ctx.lineWidth = 2;
+  ctx.moveTo(x1,y1);
+  ctx.lineTo(x2,y2);
+  ctx.stroke();
+}
+
+function rect(x=50,y=50,w=10,h=10,clr="white") {
+  ctx.beginPath();
+  ctx.fillStyle = clr;
+  ctx.rect(x,y, w,h);
+  ctx.fill();
+}
+
+function text(x,y,text) {
+  ctx.fillStyle = "white";
+  ctx.globalAlpha = 1;
+  ctx.font = "16px sans-serif";
+  ctx.fillText(text, x,y);
+}
+
+function cross(v1,v2) {
+  return v1[0] * v2[1] - v1[1] * v2[0];
+}
+
+
+// NEAT
+const config = {
+  populationSize: 2500,
+  weightMutationRate: 0.8,
+  addConnectionRate: 0.05,
+  addNodeRate: 0.03,
+  c1: 1.0,
+  c2: 1.0,
+  c3: 0.4,
+  deltaThreshold: 3.0
+};
+
+let globalInnovation = 0;
+function getNewInnovation() {
+  return globalInnovation++;
+}
+
+class NodeGene {
+  constructor(id, type) {
+    this.id = id;        // integer
+    this.type = type;    // 'input', 'hidden', 'output'
+    this.value = 0;
+    this.bias = Math.random() * 2 - 1;
+    this.activation = type === 'input' ? null : 'tanh';
+  }
+
+  clone() {
+    const clone = new NodeGene(this.id, this.type);
+    clone.bias = this.bias;
+    clone.activation = this.activation;
+    return clone;
+  }
+}
+
+class ConnectionGene {
+  constructor(inNode, outNode, weight, enabled, innovation) {
+    this.inNode = inNode;
+    this.outNode = outNode;
+    this.weight = weight;
+    this.enabled = enabled;
+    this.innovation = innovation;
+  }
+
+  clone() {
+    return new ConnectionGene(
+      this.inNode,
+      this.outNode,
+      this.weight,
+      this.enabled,
+      this.innovation
+    );
+  }
+}
+
+class Genome {
+  constructor() {
+    this.nodes = [];       // list of NodeGene
+    this.connections = []; // list of ConnectionGene
+    this.fitness = 0;
+  }
+
+  // ACTIVATION FUNCTIONS
+  // Self explanitory
+  static RELU(x) {
+    return Math.max(0,x);
+  }
+
+  static tanh(x) {
+    // console.log(x, x/200, Math.tanh(x), Math.tanh(x/200))
+    // debugger
+    return Math.tanh(x / 4);
+  }
+
+  static sigmoid(x) {
+    return 1 / (1 + Math.exp(-x));
+  }
+
+  static activate(node, sum) {
+    if (node.type === 'input') return sum;
+    switch(node.activation) {
+      case 'relu': return Genome.RELU(sum);
+      case 'tanh': return Genome.tanh(sum);
+      case 'sigmoid': return Genome.sigmoid(sum);
+      default: return sum;
+    }
+  }
+
+  // --- utilities you’ll use in feedforward ---
+  static topoOrder(nn) {
+    // build graph using ONLY enabled connections
+    const outAdj = new Map();   // nodeId -> [outNodeId,...]
+    const inDeg  = new Map();   // nodeId -> count of enabled incoming
+
+    for (const n of nn.nodes) {
+      outAdj.set(n.id, []);
+      inDeg.set(n.id, 0);
+    }
+    for (const c of nn.connections) {
+      if (!c.enabled) continue;
+      outAdj.get(c.inNode).push(c.outNode);
+      inDeg.set(c.outNode, inDeg.get(c.outNode) + 1);
+    }
+
+    // Kahn’s algorithm
+    const q = [];
+    for (const n of nn.nodes) if (inDeg.get(n.id) === 0) q.push(n.id);
+
+    const order = [];
+    while (q.length) {
+      const u = q.shift();
+      order.push(u);
+      for (const v of outAdj.get(u)) {
+        inDeg.set(v, inDeg.get(v) - 1);
+        if (inDeg.get(v) === 0) q.push(v);
+      }
+    }
+
+    // If there was a cycle, fall back to a sane order: inputs→hidden→outputs by type then id
+    if (order.length !== nn.nodes.length) {
+      return [...nn.nodes]
+        .sort((a,b) => {
+          const rank = t => (t==='input'?0 : t==='hidden'?1 : 2);
+          if (rank(a.type) !== rank(b.type)) return rank(a.type)-rank(b.type);
+          return a.id - b.id;
+        })
+        .map(n => n.id);
+    }
+    return order;
+  }
+
+  static feedForward(initInputs, nn) {
+    if (!nn || !nn.nodes || nn.nodes.length === 0) {
+      console.error("feedForward: genome has no nodes"); 
+      return [0,0,0,0]; // safe default
+    }
+
+    // Assume inputs are for node ids 0 to initInputs.length - 1
+    const numInputs = initInputs.length;
+    if (nn.nodes.length < numInputs + 4) { // at least inputs + 4 outputs
+      console.warn("Insufficient nodes for feedforward");
+      return [0,0,0,0];
+    }
+
+    // Clear node values
+    nn.nodes.forEach(n => n.value = 0);
+
+    // Topological order
+    const order = Genome.topoOrder(nn);
+
+    // Set input values
+    for (let i = 0; i < numInputs; i++) {
+      const inputNode = nn.nodes.find(n => n.id === i);
+      if (inputNode) {
+        inputNode.value = initInputs[i];
+      }
+    }
+
+    // Propagate through the network
+    for (let nodeId of order) {
+      const node = nn.nodes.find(n => n.id === nodeId);
+      if (!node || node.type === 'input') continue;
+
+      let sum = node.bias;
+      for (let conn of nn.connections) {
+        if (conn.enabled && conn.outNode === nodeId) {
+          const inNode = nn.nodes.find(n => n.id === conn.inNode);
+          if (inNode) {
+            sum += inNode.value * conn.weight;
+          }
+        }
+      }
+      node.value = Genome.activate(node, sum);
+    }
+
+    // Collect output values (assuming output nodes are last 4, ids 7-10, but general)
+    const outputs = [];
+    for (let node of nn.nodes) {
+      if (node.type === 'output') {
+        outputs.push(node.value);
+      }
+    }
+    if (outputs.length !== 4) {
+      console.warn("Expected 4 outputs, got " + outputs.length);
+      return [0,0,0,0];
+    }
+    return outputs;
+  }
+
+  static mutate(network, mutationFactor = 0.1) {
+    // Weight perturbation
+    for (let conn of network.connections) {
+      if (Math.random() < config.weightMutationRate) {
+        if (Math.random() < 0.9) {
+          conn.weight += (Math.random() * 2 - 1) * mutationFactor;
+        } else {
+          conn.weight = Math.random() * 2 - 1; // full reset
+        }
+      }
+    }
+
+    // Add connection
+    if (Math.random() < config.addConnectionRate) {
+      const nodes = network.nodes;
+      if (nodes.length < 2) return; // Need at least 2 nodes to connect
+      
+      const inNode = nodes[Math.floor(Math.random() * nodes.length)];
+      const outNode = nodes[Math.floor(Math.random() * nodes.length)];
+
+      if (inNode.id !== outNode.id && inNode.type !== 'output' && outNode.type !== 'input') {
+        // Prevent duplicate
+        const exists = network.connections.some(c => c.inNode === inNode.id && c.outNode === outNode.id);
+        if (!exists) {
+          network.connections.push(new ConnectionGene(
+            inNode.id, outNode.id,
+            Math.random() * 2 - 1,
+            true,
+            getNewInnovation()
+          ));
+        }
+      }
+    }
+
+    // Add node
+    if (Math.random() < config.addNodeRate && network.connections.length > 0) {
+      const conn = network.connections[Math.floor(Math.random() * network.connections.length)];
+      if (!conn.enabled) return;
+
+      conn.enabled = false;
+
+      const newNodeId = network.nodes.length;
+      network.nodes.push(new NodeGene(newNodeId, 'hidden'));
+
+      network.connections.push(new ConnectionGene(conn.inNode, newNodeId, 1, true, getNewInnovation()));
+      network.connections.push(new ConnectionGene(newNodeId, conn.outNode, conn.weight, true, getNewInnovation()));
+    }
+  }
+
+  static crossover(parent1, parent2) {
+    const child = new Genome();
+
+    // Create maps for quick lookup of connections by innovation number
+    const parent1Innovations = new Map();
+    const parent2Innovations = new Map();
+    
+    for (let c of parent1.brain.connections) {
+      parent1Innovations.set(c.innovation, c);
+    }
+    
+    for (let c of parent2.brain.connections) {
+      parent2Innovations.set(c.innovation, c);
+    }
+
+    // For each innovation in parent1
+    for (let [innovation, conn] of parent1Innovations) {
+      const parent2Conn = parent2Innovations.get(innovation);
+      
+      if (parent2Conn) {
+        // If connection exists in both parents, inherit from one randomly
+        child.connections.push(
+          Math.random() < 0.5 ? conn.clone() : parent2Conn.clone()
+        );
+      } else {
+        // If only in parent1, inherit it
+        child.connections.push(conn.clone());
+      }
+    }
+
+    // Add connections that are only in parent2 (if any)
+    for (let [innovation, conn] of parent2Innovations) {
+      if (!parent1Innovations.has(innovation)) {
+        child.connections.push(conn.clone());
+      }
+    }
+
+    // Ensure child has at least one connection
+    if (child.connections.length === 0 && parent1.brain.connections.length > 0) {
+      const randomConn = parent1.brain.connections[
+        Math.floor(Math.random() * parent1.brain.connections.length)
+      ];
+      child.connections.push(randomConn.clone());
+    }
+
+    // Build nodes from the connections
+    const nodeIds = new Set();
+    for (let conn of child.connections) {
+      nodeIds.add(conn.inNode);
+      nodeIds.add(conn.outNode);
+    }
+
+    // Add all nodes that are referenced by connections
+    const parentNodes = [...parent1.brain.nodes, ...parent2.brain.nodes];
+    for (let node of parentNodes) {
+      if (nodeIds.has(node.id) && !child.nodes.find(n => n.id === node.id)) {
+        child.nodes.push(node.clone());
+      }
+    }
+
+    // Ensure input and output nodes are properly included
+    const inputNodeIds = new Set();
+    const outputNodeIds = new Set();
+    
+    for (let node of parent1.brain.nodes) {
+      if (node.type === 'input') inputNodeIds.add(node.id);
+      else if (node.type === 'output') outputNodeIds.add(node.id);
+    }
+    
+    // Add all input and output nodes
+    for (let node of child.nodes) {
+      if (inputNodeIds.has(node.id)) node.type = 'input';
+      if (outputNodeIds.has(node.id)) node.type = 'output';
+    }
+
+    child.nodes.sort((a, b) => a.id - b.id);
+
+    return child;
+  }
+
+  
+  static createChild(dna1, dna2, p1_f, p2_f, i) {
+    // Create a new genome for the child
+    const child = new Genome();
+    
+    // Inherit nodes from parents (simplified approach)
+    // For now, we'll just take all nodes from parent1 and add any additional nodes from parent2
+    const nodeIds = new Set();
+    for (let node of dna1.nodes) {
+      if (!nodeIds.has(node.id)) {
+        child.nodes.push(node.clone());
+        nodeIds.add(node.id);
+      }
+    }
+    
+    // Add any extra nodes from parent2 that aren't in parent1
+    for (let node of dna2.nodes) {
+      if (!nodeIds.has(node.id)) {
+        child.nodes.push(node.clone());
+        nodeIds.add(node.id);
+      }
+    }
+    
+    // For connections, use the crossover method
+    const childConnections = Genome.crossover(dna1, dna2).connections;
+    child.connections = childConnections;
+    
+    // Add some mutations to increase diversity
+    Genome.mutate(child, 0.1);
+    
+    return child;
+  }
+
+
+  // Visualise the neural network.
+  // Used for best agent.
+  static visualize(network, inputs) {
+    var max_height = 150;
+    const offset = 20;
+    const between = 75;
+    rect(offset-offset,offset,(between*network.layers.length)+offset*5,max_height,"gray")
+
+    for (var layer = 0; layer < network.layers.length; layer++) {
+     
+
+    }
+
+    // 0 UP
+    // 1 LEFT
+    // 2 RIGHT
+    // 3 DOWN
+
+    var a = max_height/network.layers[network.layers.length-1].outputs.length
+
+    text(
+      (network.layers.length)*between+offset*2,
+      (a)+offset/1.5,
+      "Power 1"
+    )
+
+    text(
+      (network.layers.length)*between+offset*2,
+      (a*2)+offset/1.5,
+      "Angle 1"
+    )
+
+    text(
+      (network.layers.length)*between+offset*2,
+      (a*3)+offset/1.5,
+      "Power 2"
+    )
+
+    text(
+      (network.layers.length)*between+offset*2,
+      (a*4)+offset/1.5,
+      "Angle 2"
+    )
+  }
+
+
+  // PLOT FUNCTION
+  // For the graph up top.
+  // It's jank, bad, and is kind of offset now and then and goes off screen if left for too long.
+  // But it works.
+  static plot(fitness, push=false) {
+    if (push) plotHistory.push(fitness);
+   
+    if (plotHistory.length === 0) return; // Prevent plotting if there are no points
+
+    const max = Math.max(...plotHistory);
+    const min = Math.min(...plotHistory);
+    const plotWidth = 400;
+    const plotHeight = 200;
+    const offset = 50;
+    const plotX = windowWidth - offset - plotWidth;
+
+    // Clear the previous plot
+    rect(plotX, 20, plotWidth, plotHeight, "white");
+    line(plotX + 20, 20 + 20, plotX + 20, plotHeight, "black");
+    line(plotX + 20, plotHeight, plotX + plotWidth - 25, plotHeight, "black");
+
+    const scalingFactor = (plotHeight - 40) / (max - min);
+
+    // Iterate through points and draw the lines
+    for (let i = 0; i < plotHistory.length - 1; i++) {
+        const x1 = plotX + (plotWidth / (plotHistory.length - 1)) * i;
+        const y1 = (plotHeight - ((plotHistory[i] - min) * scalingFactor));
+       
+        const x2 = plotX + (plotWidth / (plotHistory.length - 1)) * (i + 1);
+        const y2 = (plotHeight - ((plotHistory[i + 1] - min) * scalingFactor));
+       
+        line(x1, y1, x2, y2, "black");
+    }
+  }
+
+}
+
+
+
+// AGENT
+// Renders a drone, stores brain, and updates based off outputs.
+// thanks to Pezza for most of this code/inspiration (Pezzza's Work on YT)
+
+class drone {
+  constructor(
+    x=Math.random()*windowWidth/2+windowWidth/4,
+    y=Math.random()*windowHeight/2+windowHeight/4
+  ) {
+    this.pos = [x,y];
+    this.vel = [0,0];
+    this.acc = [0,0];
+
+    this.width = 75;
+    this.height = 25;
+    
+    this.angle = 0;
+    this.angular_velocity = 0;
+
+    this.stage = 0;
+    this.time = 0;
+    this.goalball = new goal();
+    this.goalball.pos = stages[this.stage];
+
+    this.dead = false;
+
+    this.timeOut = 0;
+
+
+    // Each drone will have 2 thrusters
+    this.thrusters = [
+      new thruster(this.pos[0]-this.width/2, this.pos[1]),
+      new thruster(this.pos[0]+this.width/2, this.pos[1])
+    ]
+   
+    this.color = "gray";
+   
+    this.fitness = 0;
+
+    // Brain is a neural network with 4 inputs, 2 hidden layers of size 4 each, and 4 outputs.
+    // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
+    // OUTPUTS: 4 values representing power/angle x/y.
+
+    /*
+      constructor() {
+        this.nodes = [];       // list of NodeGene
+        this.connections = []; // list of ConnectionGene
+        this.fitness = 0;
+      }
+    */
+    let inputNodes = [];
+    for(let i = 0; i < 7; i++) {
+      inputNodes.push(
+        new NodeGene(i, 'input')
+      )
+    }
+    
+    let outputNodes = [];
+    for(let i = 0; i < 4; i++) {
+      outputNodes.push(
+        new NodeGene(7 + i, 'output')
+      )
+    }
+
+    this.brain = new Genome();
+    this.brain.nodes.push(...inputNodes, ...outputNodes);
+
+    for (let i = 0; i < inputNodes.length; i++) {
+      for (let j = 0; j < outputNodes.length; j++) {
+        this.brain.connections.push(
+          new ConnectionGene(
+            inputNodes[i].id,
+            outputNodes[j].id,
+            Math.random() * 2 - 1, // random weight between -1 and 1
+            true,                  // enabled
+            getNewInnovation()     // unique innovation number
+          )
+        );
+      }
+    }
+
+    // console.log(this.brain)
+  }
+
+  move(i, goalpos) {
+    
+    // New Inputs:
+    // 0: Power for thruster 0 (0 => 1)
+    // 1: Angle for thruster 0 (-1 => 1)
+    // 2: Power for thruster 0 (0 => 1)
+    // 3: Angle for thruster 0 (-1 => 1)
+
+    // SEND ALL THIS TO THRUSTERS
+    const left = this.thrusters[0]
+    const right = this.thrusters[1]
+
+    left.setPower(i[0]);
+    left.setAngle(i[1]);
+
+    right.setPower(i[2]);
+    right.setAngle(i[3]);
+
+    if (i.length == 0) debugger
+
+    this.acc = [0,0]
+
+    // gravity
+    this.acc[1] = .05;
+
+    this.acc[0] += this.getThrust()[0];
+    this.acc[1] += this.getThrust()[1];
+
+    this.angular_velocity += this.getTorque();
+		this.angle += this.angular_velocity * deltaTime;
+
+    // normalize angle
+    this.angle %= Math.PI * 2;
+
+    // Update velocity
+    this.vel[0] += this.acc[0];
+    this.vel[1] += this.acc[1];
+
+    // Update position
+    this.pos[0] += this.vel[0] * deltaTime;
+    this.pos[1] += this.vel[1] * deltaTime;
+
+    // If velocity away from goal, penalize
+    const goalx = goalpos[0];
+    const goaly = goalpos[1];
+  }
+
+  update() {
+
+    // Keep the thrusters on the drone
+    // this.thrusters[0].pos = [this.pos[0]-this.width/2, this.pos[1]]
+    // this.thrusters[1].pos = [this.pos[0]+this.width/2, this.pos[1]]
+
+    // difference in x and y
+    this.goalball.pos = stages[this.stage];
+    const goalx = this.goalball.pos[0];
+    const goaly = this.goalball.pos[1];
+    const dx = (goalx - this.pos[0])/windowWidth;
+    const dy = (goaly - this.pos[1])/windowHeight;
+
+    // if ( Genome.feedForward([
+    //   dx, dy, //to target x/y
+    //   this.vel[0], -this.vel[1], //vel x/y
+    //   Math.cos(this.angle), Math.sin(this.angle), // cos angle of drone, sin angle of drone
+    //   this.angular_velocity, // angular velocity of drone
+    // ], 
+    // this.brain).length == 0 ) debugger
+
+    // Penalize if too far
+    // this.fitness -= Math.sqrt( dx**2 + dy**2 );
+
+    // Penalize for high angular velocity
+    // this.fitness -= this.angular_velocity;
+
+    // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
+    this.move(Genome.feedForward([
+      dx, dy, //to target x/y
+      this.vel[0], -this.vel[1], //vel x/y
+      Math.cos(this.angle), Math.sin(this.angle), // cos angle of drone, sin angle of drone
+      this.angular_velocity, // angular velocity of drone
+    ], 
+    this.brain), [goalx, goaly]);
+
+    // console.log(NN.feedForward([normalizedX, normalizedY, goalx/windowWidth, goaly/windowHeight], this.brain));
+    // console.log(this.brain)
+  }
+
+  getTorque() {
+    const inertia_coef = .8;
+    const thruster_offset = this.width/2;
+
+		const angle_left =  -this.thrusters[0].angle - (Math.PI/2);
+    const left_torque = this.thrusters[0].getPower() / thruster_offset * 
+    cross(
+      [Math.cos(angle_left), Math.sin(angle_left)], 
+      [1.0, 0.0]
+    );
+
+		const angle_right = this.thrusters[1].angle - (Math.PI/2);
+    const right_torque = this.thrusters[1].getPower() / thruster_offset * 
+    cross(
+      [Math.cos(angle_left), Math.sin(angle_left)], 
+      [-1.0, 0.0]
+    );
+
+
+		return (left_torque + right_torque) * inertia_coef;
+  }
+
+  getThrust() {
+    const left = this.thrusters[0];
+    const right = this.thrusters[1];
+
+		const angle_left = this.angle + left.angle - (Math.PI/2);
+	  const thrust_left = mulVector([left.getPower(), left.getPower()], [Math.cos(angle_left), Math.sin(angle_left)]);
+
+		const angle_right = this.angle + right.angle - (Math.PI/2);
+		const thrust_right = mulVector([right.getPower(), right.getPower()], [Math.cos(angle_right), Math.sin(angle_right)]);
+
+    // debugger
+		return addVector(thrust_left, thrust_right);
+	}
+
+  draw() {
+    ctx.save();
+
+    ctx.translate(this.pos[0], this.pos[1])
+
+    ctx.rotate(this.angle);
+
+    ctx.fillStyle = this.color;
+    rect(-this.width/2, -this.height/2, this.width, this.height);
+
+    this.thrusters[0].draw([-this.width/2, 0]);
+    this.thrusters[1].draw([+this.width/2, 0]);
+
+    ctx.restore();
+  }
+}
+
+const flame = new Image()
+flame.src = "flame.png"
+
+class thruster {
+  constructor(x,y) {
+    this.pos = [x,y];
+
+    this.power_ratio = 0; // output of AI will be 0-1; so from 0 to max_power
+    this.max_power = .2; // acc
+
+		this.angle = 0; // Angle of each thruster
+		this.max_angle = 1/2 * Math.PI; // Max left half PI and max right half PI
+		this.target_angle;
+		this.angle_var_speed = .01; // How fast the thruster can rotate
+		this.angle_ratio;
+
+    this.width = 20;
+    this.height = 50;
+  }
+
+  setAngle(ratio) {
+    this.target_angle = this.max_angle * Math.max(-1.0, Math.min(1.0, ratio));
+  }
+
+  setPower(ratio) {
+    this.power_ratio = Math.max(0.0, Math.min(1.0, ratio));
+  }
+
+  getPower() {
+    return this.power_ratio * this.max_power;
+  }
+
+  update() {
+    const speed = this.angle_var_speed;
+    this.angle += speed * (this.target_angle - this.angle);
+    this.angle_ratio = this.angle / this.max_angle;
+  }
+
+  draw(pos) {
+    ctx.save();
+
+    ctx.translate(pos[0], pos[1])
+    
+    ctx.rotate(this.target_angle);
+    // Main thruster body
+    rect(
+      -this.width/2, 
+      -this.height/2, 
+      this.width, 
+      this.height, 
+      "gray"
+    )
+
+
+    // Flame
+    ctx.translate(-this.width*2/2, +this.height/2.5)
+    ctx.drawImage(flame, 0, 0, this.width*2, this.getPower()*flame.height/2)
+
+    ctx.restore();
+
+  }
+}
+
+// Simple dot on screen for posision.
+class goal {
+  constructor() {
+    /*
+    this.pos = [
+      Math.random() * windowWidth,
+      Math.random() * windowHeight
+    ];
+    */
+
+    this.pos = [
+      windowWidth*3/4,
+      windowHeight/4
+    ];
+  }
+
+  draw() {
+    ctx.beginPath();
+    ctx.fillStyle = "green";
+    ctx.arc(this.pos[0], this.pos[1], 5, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+}
+
+
+// Initialize agents array, configure amount of agents, and the generation function.
+var drones = [];
+const training = true;
+const ballAmount = training ? config.populationSize : 1;
+function generation() {
+  const drones_amount = drones.length;
+  for (let i = 0; i < ballAmount-drones_amount; i++) {
+    drones.push(new drone(windowWidth/2, windowHeight/2));
+  }
+}
+
+// Generate first gen.
+generation()
+
+// Assign goal, purely for visuals, and for fitness calculation.
+var goalball = new goal()
+
+
+// Config
+let steps_per_gen = 6000*deltaTime;
+let gen = 0;
+let step = 0;
+const numBest = Math.floor(ballAmount * 0.3);
+
+if (!training) {
+  document.addEventListener('mousemove', function(e) {
+    goalball.pos[0] = e.clientX - 7;
+    goalball.pos[1] = e.clientY - 7;
+  });
+}
+
+
+// if (!localStorage.getItem("brain")) localStorage.setItem('brain', "{\"fitness\":-79852.91506666942,\"brain\":{\"layers\":[{\"inputs\":[-0.02137174119843621,0.11099622936126252,-0.047879122394246666,-0.004123451061363657],\"outputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"biases\":[0.04095441548424866,-0.11350061844515014,0.09921157064924271,0.024268035069157836,-0.08979267659397498,0.003162736088979263,0.09667388679275374],\"weights\":[[-0.0006481733497199751,-0.045717197386417566,0.09451767505950141,-0.0007320629529811609,0.018331140029499447,-0.019045928977273415,-0.08868185055452045],[0.031612289497859124,0.12428124949197214,-0.01687123665420824,0.013429824610282718,-0.050785071498858865,0.005683015333104701,0.02413011496819181],[-0.09656842458117418,0.06963798039537848,-0.03644955117212821,-0.1033112300043343,-0.1824974942569167,0.13273830573952486,-0.03820928891135767],[-0.060596260436669235,-0.04263101854571571,0.02026557991616553,-0.19922994009095646,-0.027769872455340027,0.0809859561873496,0.07592413618220721]]},{\"inputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"outputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"biases\":[0.10060191564581851,0.0750077378759982,0.015094358449828864,-0.03627741261013865,0.011825881338341927,0.00647039897776997,0.03215207375391765],\"weights\":[[-0.007465685024560383,0.015939796315605676,0.0015353599478004718,-0.04920817467408902,0.013451206094227435,0.014645338023631195,-0.06704742022722411],[0.08807504438553841,0.0710020403045861,0.023371662593475673,0.11438271661138255,0.06394951445018819,-0.028085447415192706,-0.05663348715307049],[0.03304720284773742,0.10269676530807391,0.013114103585590576,-0.019524453968723127,0.040333386793709534,-0.03925351178964188,-0.012627658824033333],[0.049565134001931584,0.0006983659457811156,0.09334001682283533,-0.07315821432291264,0.06953594479347054,0.030213084302871025,0.006546351775161597],[0.06135565632966065,-0.04827298699234826,0.03112347552259101,-0.012092774627974588,-0.015547354854684305,0.07186779004576392,0.017466658265330354],[0.022849036091134183,-0.02566045478149357,-0.14022760186209926,0.024664561361443373,0.036515946713025375,-0.04934413129225954,0.014067613165421535],[-0.04419352758757091,0.0704132705673496,0.004708497029700486,0.05875191045253982,-0.002726616132706979,0.05342397763225214,0.05215902377746635]]},{\"inputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"outputs\":[1,1,0,1],\"biases\":[-0.05361388392075887,-0.020539873297679676,-0.009339673241524744,-0.010949945805380173],\"weights\":[[0.038729825968166834,0.003331361273977622,-0.0713988383250234,-0.021593381485938763],[0.029082446696769817,0.012692840990284712,0.009948980387291185,-0.06305064745566746],[-0.044311385410983006,-0.005922337940038113,-0.11280964396190278,-0.11164465348677138],[0.06271549576976718,-0.1343676545185808,0.02209361754321169,-0.0077261927960031096],[0.028632462026410975,-0.010271652856849538,-0.004605139810650052,-0.10668622302870821],[-0.007048046416734196,0.06136053186885656,-0.0425915739154361,-0.008118647472714804],[-0.02619672855260632,0.04822150638691121,-0.028542500563720388,-0.01535000200645547]]}]}}")
+  
+// if (!training) drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+// if (localStorage.getItem("brain") !== null) {
+  drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+// }
+
+let previousBestFitness = -Infinity;
+let stagnation = 0;
+
+let dead = 0;
+
+let bestAgents;
+
+function isMovingTowardsGoal(position, velocity, goal) {
+  // Vector from position to goal
+  const toGoal = [goal[0] - position[0], goal[1] - position[1]];
+
+  // Dot product of velocity and toGoal vector
+  const dot = velocity[0] * toGoal[0] + velocity[1] * toGoal[1];
+
+  // If dot product > 0, the drone is moving toward the goal
+  // return dot > 0;
+  return dot;
+}
+
+// MAIN CODE PER FRAME FOR EACH OF THE AGENTS
+function frame() {
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  console.time("start")
+
+  ctx.globalAlpha = 1;
+  // ctx.globalAlpha = 0.3;
+ 
+  // Loop through all agents to update/determine their fitness
+  // for (const agent of drones) {
+  for (var i = 0; i < drones.length; i++) {
+    const agent = drones[i];
+    if (agent.dead) continue;
+
+    agent.draw();
+    // agent.goalball.draw();
+
+    if (training && !agent.dead) {
+
+      const distance = ((agent.goalball.pos[0] - agent.pos[0])**2) + ((agent.goalball.pos[1] - agent.pos[1])**2);
+      
+      // Reward for going towards the goalball
+      const dot = isMovingTowardsGoal(agent.pos, agent.vel, agent.goalball.pos)
+      agent.fitness += (10 / ( 1 + distance )) * dot
+
+      // reward for staying up right
+      agent.fitness += Math.cos(agent.angle);
+
+      // Reward for speed
+      // agent.fitness += Math.abs(
+      //   Math.sqrt(
+      //     Math.pow(agent.vel[0], 2) +
+      //     Math.pow(agent.vel[1], 2)
+      //   ) * 0.5
+      // );
+
+      if (distance < 50**2) {
+        agent.fitness += Math.pow(Math.cos(agent.angle)*10, 3)
+
+        // agent.fitness += 10 / (1 + Math.abs(agent.angular_velocity)); // reward being still
+        agent.fitness += 5 / (1 + Math.sqrt(agent.vel[0]**2 + agent.vel[1]**2) ); // reward not moving fast
+
+        agent.time += deltaTime;
+        // agent.fitness += steps_per_gen - step;
+        if (agent.time >= 200) {
+          // steps_per_gen = Math.max(...drones.map(d => d.stage)) * 1000;
+          step = 0;
+          agent.time = 0;
+          agent.stage += 1;
+          agent.fitness *= 1.2;
+        }
+      } else {
+        agent.timeOut += deltaTime;
+      }
+
+
+      if (
+        ((agent.pos[0] < -windowWidth/2 || agent.pos[0] > windowWidth*3/2) 
+      || (agent.pos[1] < -windowHeight/2 || agent.pos[1] > windowHeight*3/2)) || (agent.angle <= -Math.PI || agent.angle >= Math.PI)) {
+        agent.dead = true;
+        if ((agent.angle <= -Math.PI || agent.angle >= Math.PI)) {
+          agent.fitness /= 10;
+          // agent.fitness = 0
+        } 
+        dead++
+      }
+
+    } 
+    // ctx.globalAlpha = 1;
+    
+    agent.update();
+
+  }
+ 
+  // drones[0].draw()
+ 
+  // Draw the main objective
+  // goalball.draw();
+   
+  if (training) {
+
+    // Draw numBest
+    bestAgents = (drones.toSorted((a,b) => b.fitness - a.fitness)).slice(0,numBest);
+    for (var i = 0; i < numBest; i++) {
+      const agent = bestAgents[i];
+      if (agent.dead) continue;
+      agent.goalball.draw();
+      agent.draw();
+      agent.color = "#FFD700"
+    }
+
+    // Visualized progress over all generations.
+    // It's a hacky solution so it doesn't work quite alright.
+    if (bestAgents) {
+      // NN.visualize(bestAgents[0].brain, bestAgents[0].pos)
+      // NN.plot(bestAgents[0].fitness);
+    }
+
+    // Handle generations
+    // Count steps and record best agent in localstorage
+    step += deltaTime;
+    // drones[0].draw()
+    // step%10==0?console.log(Math.cos(drones[0].angle)):null
+     
+    // If the steps are max, next generation
+    // Or if the fitness is better than a certain threshold, next generation.
+    //let threshold = 0.90;
+    //if (JSON.parse(localStorage.getItem("brain"))) threshold = JSON.parse(localStorage.getItem("brain")).fitness
+    // || (bestAgents[0].fitness > threshold)    
+    if(step>=steps_per_gen || dead == drones.length ) {
+
+      console.timeEnd("start")
+
+      // Finds best agents
+      bestAgents = (drones.toSorted((a,b) => b.fitness - a.fitness)).slice(0,numBest);
+      // for (var i = 0; i < numBest; i++) {
+      //   const agent = bestAgents[i];
+      //   if (agent.dead) continue;
+      //   // agent.goalball.draw();
+      //   agent.color = "#FFD700"
+      // }
+
+      // for (const drone of drones) {
+      //   // const points = drone.goalball - dist; // distance to goalball after the alloted time is depleted
+      //   drone.fitness += Math.max(0, (1 / (1 + drone.timeOut) ))
+      // }
+
+      // If brain if it doesn't exist, create.
+      // if (!localStorage.getItem("brain")) localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
+     
+      // If agent did better than last time, save.
+      // if (bestAgents[0].fitness > JSON.parse(localStorage.getItem("brain")).fitness ) {
+        // localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
+      // }
+      // let storedBrain = localStorage.getItem("brain");
+      // if ((storedBrain !== "undefined") || bestAgents[0].fitness > JSON.parse(storedBrain).fitness) {
+        // localStorage.setItem("brain", JSON.stringify(bestAgents[0]));
+      // }
+
+     
+      gen++
+      console.log(`Gen: ${gen}, best: ${bestAgents[0].fitness}`)
+
+      // Get best agents from last gen to stay
+      // Only half of best get best brain to ensure diversity.
+      for (let i = 0; i < Math.floor(numBest/2); i++) {
+        drones[i].brain = bestAgents[i].brain;
+        // drones[i].brain = JSON.parse(localStorage.getItem("brain")).brain;
+      }
+ 
+      // Reset steps and remove all agents.
+      step = 0;
+      drones.splice(numBest);
+     
+      // Plot the new generation best agent.
+      // NN.plot(bestAgents[0].fitness, true);
+     
+      // Generate new generation.
+      generation();
+
+      /**
+       * Selects a parent agent from a population using roulette wheel selection.
+       * Agents with higher fitness values have a proportionally higher chance of being selected.
+       *
+       * @param {Array<Object>} population An array of agent objects, each with a 'fitness' property.
+       * @returns {Object|null} The selected parent agent, or null if the population is empty.
+       */
+      function selectParent(population) {
+          // 1. Handle empty population immediately
+          if (!population || population.length === 0) {
+              console.warn("Attempted to select a parent from an empty population. Returning null.");
+              return null;
+          }
+
+          // 2. Calculate total fitness
+          // Using reduce is good, but ensure fitness values are non-negative.
+          const totalFitness = population.reduce((sum, agent) => sum + Math.max(0, agent.fitness), 0);
+
+          // 3. Handle case where total fitness is zero (e.g., all agents have 0 or negative fitness)
+          if (totalFitness <= 0) {
+              // If all fitness is zero or negative, no selection pressure can be applied.
+              // Fallback to purely random selection to maintain diversity or try to escape local optima.
+              console.warn("Total fitness is zero or negative. Falling back to random parent selection.");
+              return population[Math.floor(Math.random() * population.length)];
+          }
+
+          // 4. Generate a random pick point on the roulette wheel
+          // Math.random() generates a number between 0 (inclusive) and 1 (exclusive).
+          const pick = Math.random() * totalFitness;
+
+          // 5. Spin the roulette wheel
+          let currentSum = 0;
+          for (let agent of population) {
+              // Only consider positive fitness for selection
+              const agentFitness = Math.max(0, agent.fitness);
+              currentSum += agentFitness;
+              if (currentSum >= pick) {
+                  return agent; // Found the parent
+              }
+          }
+
+          // 6. Fallback (should ideally not be reached with correct logic, but good for robustness)
+          // This could happen due to floating point inaccuracies if pick is exactly totalFitness
+          // or if the sum just barely misses the pick threshold.
+          console.warn("Roulette wheel selection did not find a parent. Returning the last agent.");
+          return population[population.length - 1];
+      }
+
+      // Mutate the rest with crossover
+      for (let i = numBest; i < drones.length; i++) {
+          let parent1 = selectParent(bestAgents);
+          let parent2 = selectParent(bestAgents);
+
+          // Ensure different parents
+          if (parent1 === parent2) parent2 = selectParent(bestAgents);
+
+          const child = Genome.crossover(parent1, parent2);
+
+          if (child.nodes.length == 0) debugger
+
+          // Create a child with crossover and mutation
+          drones[i].brain = child;
+      }
+
+
+      // reset all drone positions and velocities.
+      for (let i = 0; i < drones.length; i++) {
+        drones[i].pos = [windowWidth/2, windowHeight/2];
+        drones[i].vel = [0, 0];
+        drones[i].acc = [0, 0];
+        drones[i].angle = 0;
+        drones[i].angular_velocity = 0;
+        drones[i].fitness = 0;
+        drones[i].stage = 0;
+        drones[i].time = 0;
+        drones[i].dead = false;
+        drones[i].timeOut = 0;
+
+        drones[i].thrusters[0].angle = 0;
+        drones[i].thrusters[1].angle = 0;
+        drones[i].thrusters[0].power_ratio = 0;
+        drones[i].thrusters[1].power_ratio = 0;
+        drones[i].thrusters[0].target_angle = 0;
+        drones[i].thrusters[1].target_angle = 0;
+      }
+      dead = 0;
+
+      // Mutate the rest.
+      // for (let i = 3; i < drones.length; i++) {
+      //   drones[i].brain = JSON.parse(JSON.stringify(drones[i%bestAgents.length].brain));
+        
+      //   // const mutation_proba = 1.0 / Math.sqrt(drones[i&bestAgents.length].fitness);
+      //   NN.mutate(drones[i].brain, mutation_factor)
+      //   // NN.mutate(drones[i].brain, mutation_proba)
+      // }
+    }
+  }
+
+  window.requestAnimationFrame(frame);
+}
+ 
+// setInterval(frame,1)
+window.requestAnimationFrame(frame);
+ 
+</script>
+
+</body>
+</html>

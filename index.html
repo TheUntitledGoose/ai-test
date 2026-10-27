@@ -16,6 +16,11 @@
 </head>
 <body style='overflow: hidden; margin: 0;'>
 
+  <div style="position:fixed; bottom:20px; left:20px; color:white; font-family:monospace; z-index:10;">
+      SPEED: <input type="range" id="speedSlider" min="1" max="150" value="1">
+      <span id="speedLabel">1x</span>
+    </div>
+
   <canvas id='myCanvas' width=1000 height=500></canvas>
 
 <script>
@@ -132,20 +137,22 @@ class NN {
     network.layers.forEach(layer => {
 
       for (let i = 0; i < layer.biases.length; i++) {
-        layer.biases[i] = lerp(
-          layer.biases[i],
-          Math.random()*2-1,
-          mutation_factor
-        )
+        // layer.biases[i] = lerp(
+        //   layer.biases[i],
+        //   Math.random()*2-1,
+        //   mutation_factor
+        // )
+        layer.biases[i] += (Math.random() * 2 - 1) * mutation_factor;
       }
 
       for (let i = 0; i < layer.weights.length; i++) {
         for (let j = 0; j < layer.weights[i].length; j++) {
-          layer.weights[i][j] = lerp(
-            layer.weights[i][j],
-            Math.random()*2-1,
-            mutation_factor
-          )          
+          // layer.weights[i][j] = lerp(
+          //   layer.weights[i][j],
+          //   Math.random()*2-1,
+          //   mutation_factor
+          // )   
+          layer.weights[i][j] += (Math.random() * 2 - 1) * mutation_factor;
         }
       }
 
@@ -309,22 +316,8 @@ class Layer {
         sum += layer.inputs[inputN]*layer.weights[inputN][outputN];
       }
 
-      // If not binary (such as hidden layers) use tanh
-      if (!binary) {
-        // tanh
-        layer.outputs[outputN] = NN.tanh(sum+layer.biases[outputN])
+      layer.outputs[outputN] = NN.tanh(sum + layer.biases[outputN])
      
-      // Use binary for outputs since for them it has to be either a 0 or 1.
-      } else {
-        // Binary Class
-        // Same as lectures.
-        if (sum>layer.biases[outputN]) {
-          layer.outputs[outputN]=1;
-        } else {
-          layer.outputs[outputN]=0;
-        }
-      }
-
     }
 
     return layer.outputs;
@@ -368,10 +361,14 @@ class ball {
     // if (i[3]) this.pos[1]+=speed;this.fitness -= .001;
 
     // Add acceleration
-    if (i[0]) this.acc[1]=speed;//this.fitness -= .01;
-    if (i[1]) this.acc[0]=speed;//this.fitness -= .01;
-    if (i[2]) this.acc[0]=-speed;//this.fitness -= .01;
-    if (i[3]) this.acc[1]=-speed;//this.fitness -= .01;
+    // if (i[0]) this.acc[1]=speed;//this.fitness -= .01;
+    // if (i[1]) this.acc[0]=speed;//this.fitness -= .01;
+    // if (i[2]) this.acc[0]=-speed;//this.fitness -= .01;
+    // if (i[3]) this.acc[1]=-speed;//this.fitness -= .01;
+    // i[0]=UP, i[1]=LEFT, i[2]=RIGHT, i[3]=DOWN  (values are -1 to 1)
+    this.acc[1] = -i[0] * speed;   // UP
+    this.acc[0] = (-i[1] + i[2]) * speed;  // LEFT + RIGHT
+    this.acc[1] += i[3] * speed;   // DOWN
 
     // Update velocity
     this.vel[0] += this.acc[0];
@@ -380,8 +377,8 @@ class ball {
     this.vel[0] *= .99; // Friction
     this.vel[1] *= .99; // Friction
 
-    this.fitness -= Math.abs(this.vel[0])*10; // Penalize high velocity
-    this.fitness -= Math.abs(this.vel[1])*10; // Penalize high velocity
+    // this.fitness -= Math.abs(this.vel[0])*10; // Penalize high velocity
+    // this.fitness -= Math.abs(this.vel[1])*10; // Penalize high velocity
 
 
     // Max velocity
@@ -397,17 +394,17 @@ class ball {
     // If velocity away from goal, penalize
     const goalx = goalpos[0];
     const goaly = goalpos[1];
-    if (goalx - (this.vel[0] + this.pos[0]) < goalx - this.pos[0] && goalx - (this.vel[1] + this.pos[1]) < goaly - this.pos[1]) {
-      this.fitness += .5;
-    } else {
-      this.fitness -= .5;
-    }
+    // if (goalx - (this.vel[0] + this.pos[0]) < goalx - this.pos[0] && goalx - (this.vel[1] + this.pos[1]) < goaly - this.pos[1]) {
+    //   this.fitness += .5;
+    // } else {
+    //   this.fitness -= .5;
+    // }
 
     // this.fitness += .1;
 
     // if ((i[0] && i[1]) || (i[0] && i[2])) this.fitness -= 10;
     // if ((i[3] && i[1]) || (i[3] && i[2])) this.fitness -= 10;
-    this.fitness -= 0.1 * (Math.abs(this.vel[0]) + Math.abs(this.vel[1]));
+    // this.fitness -= 0.1 * (Math.abs(this.vel[0]) + Math.abs(this.vel[1]));
 
   }
 
@@ -426,9 +423,9 @@ class ball {
     const dy = goaly - this.pos[1];
 
     // Penalize if too far
-    this.fitness -= Math.sqrt( dx**2 + dy**2 );
+    // this.fitness -= Math.sqrt( dx**2 + dy**2 );
 
-    this.move(NN.feedForward([dx, dy, this.vel[0], this.vel[1]], this.brain), [goalx, goaly]);
+    this.move(NN.feedForward([dx/windowWidth, dy/windowHeight, this.vel[0]/5, this.vel[1]/5], this.brain), [goalx, goaly]);
     // console.log(NN.feedForward([normalizedX, normalizedY, goalx/windowWidth, goaly/windowHeight], this.brain));
     // console.log(this.brain)
   }
@@ -464,7 +461,7 @@ class goal {
 // Initialize agents array, configure amount of agents, and the generation function.
 var balls = [];
 const training = false;
-const ballAmount = training ? 10000 : 1;
+const ballAmount = training ? 500 : 1;
 function generation() {
   for (let i = 0; i < ballAmount; i++) {
     // let x = Math.random() * windowWidth;
@@ -488,7 +485,7 @@ let step = 0;
 
 // have a higher mutation rate for the first few generations.
 // mutation_factor starts at .10 and decreases by .001 each generation.
-let mutation_factor = .15;
+let mutation_factor = .3;
 
 if (!training) {
   document.addEventListener('mousemove', function(e) {
@@ -513,21 +510,23 @@ function frame() {
   for (var i = 0; i < balls.length; i++) {
     const agent = balls[i];
 
-    if (training) {
-      // agent.fitness += 1 / (0.000001 + Math.sqrt(
-      //     Math.pow(goalball.pos[0] - agent.pos[0], 2) +
-      //     Math.pow(goalball.pos[1] - agent.pos[1], 2)
-      // ))
-      const distance = Math.sqrt((goalball.pos[0] - agent.pos[0])**2 + (goalball.pos[1] - agent.pos[1])**2);
-      agent.fitness += Math.exp(-distance * 0.1);  // 0.1 controls scaling
-    } else {
-      ctx.globalAlpha = 1;
-      NN.visualize(balls[0].brain)
-      ctx.globalAlpha = 0.3;
-    }
+    // if (training && steps_per_gen % parseInt(document.getElementById('speedSlider').value) == 0) {
+    //   // agent.fitness += 1 / (0.000001 + Math.sqrt(
+    //   //     Math.pow(goalball.pos[0] - agent.pos[0], 2) +
+    //   //     Math.pow(goalball.pos[1] - agent.pos[1], 2)
+    //   // ))
+    //   const distance = Math.sqrt((goalball.pos[0] - agent.pos[0])**2 + (goalball.pos[1] - agent.pos[1])**2);
+    //   // agent.fitness += Math.exp(-distance * 0.1);  // 0.1 controls scaling
+    //   agent.fitness += Math.max(0, 1 - distance / 500);  // 1.0 at goal, 0 at 500px away
+    //   agent.fitness -= Math.abs(agent.vel[0]) + Math.abs(agent.vel[1]);
+    // } else {
+    //   ctx.globalAlpha = 1;
+    //   NN.visualize(balls[0].brain)
+    //   ctx.globalAlpha = 0.3;
+    // }
 
-    // console.log(i)
-    agent.update(goalball.pos[0], goalball.pos[1]);
+    // // console.log(i)
+    // agent.update(goalball.pos[0], goalball.pos[1]);
 
 
     agent.color = "orange";
@@ -551,7 +550,7 @@ function frame() {
 
       // make the color if #1: red, #2: green, #3: blue.
       agent.color = i == 0 ? "red" : i == 1 ? "green" : "blue";
-      agent.draw();
+      // agent.draw();
     }
    
     // Visualized progress over all generations.
@@ -593,8 +592,8 @@ function frame() {
       generation();
 
       // Decrease mutation factor.
-      if (mutation_factor < 0.001) mutation_factor = 0.001;
-      else mutation_factor -= 0.001;
+      if (mutation_factor < 0.05) mutation_factor = 0.05;
+      else mutation_factor -= 0.002;
 
       // Change goal pos
       goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
@@ -612,11 +611,47 @@ function frame() {
     }
   }
 
-  window.requestAnimationFrame(frame);
+  // Always draw the last state
+  // if (parseInt(document.getElementById('speedSlider').value) > 1) {
+  //   ctx.clearRect(0, 0, c.width, c.height);
+  //   ctx.globalAlpha = 0.3;
+  //   for (const agent of balls) {
+  //     agent.color = "orange";
+  //     agent.draw();
+  //   }
+  //   ctx.globalAlpha = 1;
+  //   goalball.draw();
+  // }
+
+  // window.requestAnimationFrame(sim);
 }
- 
+
+document.getElementById('speedSlider').addEventListener('input', function() {
+  document.getElementById('speedLabel').textContent = this.value + 'x';
+});
+
+function sim() { 
+  const speed = parseInt(document.getElementById('speedSlider').value);
+  for (let s = 0; s < speed; s++) {
+    // Run sim-only logic here (NO drawing)
+    for (var i = 0; i < balls.length; i++) {
+      const agent = balls[i];
+      const distance = Math.sqrt((goalball.pos[0] - agent.pos[0])**2 + (goalball.pos[1] - agent.pos[1])**2);
+      agent.fitness += Math.max(0, 1 - distance / 500);
+      agent.fitness -= Math.abs(agent.vel[0]) * 0.01 + Math.abs(agent.vel[1]) * 0.01;
+      agent.update(goalball.pos[0], goalball.pos[1]);
+    }
+    step++;
+  }
+
+  // Draw ONCE after all sim steps
+  frame();
+
+  window.requestAnimationFrame(sim);
+}
+
 // setInterval(frame,50)
-window.requestAnimationFrame(frame);
+window.requestAnimationFrame(sim);
  
 </script>
 

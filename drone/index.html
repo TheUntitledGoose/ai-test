@@ -5,28 +5,61 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Test</title>
   <style>body {background-color: black;}</style>
+  <script src="https://cdn.jsdelivr.net/gh/TheUntitledGoose/imgui-js@main/imgui.js"></script>
 </head>
 <body style='overflow: hidden; margin: 0;'>
   <canvas id='myCanvas' width=1000 height=500></canvas>
 <script>
 
-// EXPLANATION
-// Up ahead are some function just for some reused things I'm doing
-// The "main" animate function is on line 745
+c = document.getElementById("myCanvas");
+ctx = c.getContext("2d");
 
-// Maybe I didn't use the activation function correctly?
-// Maybe my rewards are off?
-
-var c = document.getElementById("myCanvas");
-let ctx = c.getContext("2d");
-
-let windowWidth = window.innerWidth;
-let windowHeight = window.innerHeight;
+// let windowWidth = window.innerWidth;
+// let windowHeight = window.innerHeight;
 
 c.height = windowHeight;
 c.width = windowWidth;
 
-const deltaTime = 1
+// Initialize agents array, configure amount of agents, and the generation function.
+var drones = [];
+const training = true;
+const ballAmount = training ? 1000 : 1;
+function generation() {
+  const drones_amount = drones.length;
+  for (let i = 0; i < ballAmount-drones_amount; i++) {
+    // let x = Math.random() * windowWidth;
+    // let y = Math.random() * windowHeight;
+    // drones.push(new drone(x, y));
+    drones.push(new drone(windowWidth/2, windowHeight/2));
+  }
+}
+
+
+// Init ImGui. Canvas argument (c) is required.
+let imgui = new ImGui(200, 250, 400, 100, c);
+
+let training_toggle = imgui.checkbox("Train", true);
+let previous_best_toggle = imgui.checkbox("Show Previous Best Drone", false);
+let bestAgents_slider = imgui.slider(0, drones.length, undefined, 10, {text: "Best Agents to Show"});
+let generation_text = imgui.staticText("Gen: 0 // Step: 0");
+let delta_fitness = imgui.staticText("Current best: 0 // Last Fitness: 0 // ΔF = 0")
+let debug_data = imgui.staticText("")
+let save_current_best = imgui.button("Save current best");
+save_current_best.onClick(() => {
+  const name = `currentbest_${gen}_${step}_${Date.now()}`
+  console.log(`Saving current best: ${name}`)
+
+  localStorage.setItem(name, JSON.stringify(bestAgents[0]))
+})
+
+let debug_button = imgui.button("debug");
+
+let fast_forward = imgui.checkbox("Fast-forward", false);
+let ff_slider = imgui.slider(0, 1000, undefined, 10, {text: "Fast forward slider"});
+
+imgui.init();
+
+let deltaTime = 1
 
 const plotHistory = [];
 
@@ -96,6 +129,17 @@ function cross(v1,v2) {
   return v1[0] * v2[1] - v1[1] * v2[0];
 }
 
+function gaussianRandom() {
+  let u = 0;
+  let v = 0;
+
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+
+  return Math.sqrt(-2 * Math.log(u)) *
+    Math.cos(2 * Math.PI * v);
+}
+
 class NN {
   constructor(layers) {
 
@@ -111,20 +155,23 @@ class NN {
   // ACTIVATION FUNCTIONS
   // Self explanitory
   static RELU(x) {
-    return Math.max(0,x);
+    //return Math.max(0,x);
+    return Math.max(0.1*x,x);
   }
 
   static tanh(x) {
     // console.log(x, x/200, Math.tanh(x), Math.tanh(x/200))
     // debugger
-    return Math.tanh(x / 4);
+    return Math.tanh(x);
+    // return x / (1 + Math.abs(x));
   }
 
   static feedForward(initInputs, nn) {
+    nn.layers[0].inputs = initInputs;
     let outputs = Layer.feedForwardLayer(initInputs, nn.layers[0]);
     for (let layer = 1; layer < nn.layers.length; layer++) {
-      var is_last_layer = layer == nn.layers.length;
-      outputs = Layer.feedForwardLayer(outputs, nn.layers[layer], is_last_layer)
+      nn.layers[layer].inputs = outputs;
+      outputs = Layer.feedForwardLayer(outputs, nn.layers[layer])
     }
 
     return outputs;
@@ -136,32 +183,66 @@ class NN {
   }
 
   static mutate_better(network, mutationFactor=0.1) {
-        network.layers.forEach(layer => {
-            // Mutate biases
-            for (let i = 0; i < layer.biases.length; i++) {
-              // if (Math.random() < mutationFactor) {
-                // layer.biases[i] += (Math.random() * 2 - 1) * 0.1; // used to be * mutationFactor
+    network.layers.forEach(layer => {
+      // Mutate biases
+      for (let i = 0; i < layer.biases.length; i++) {
+        // layer.biases[i] += (Math.random() * 2 - 1) * 0.1; // used to be * mutationFactor
 
-                // Small random tweak or full reset
-                layer.biases[i] += (Math.random() * 2 - 1) * mutationFactor;
-                if (Math.random() < 0.01) layer.biases[i] = Math.random() * 2 - 1; // occasional full mutation
-              // }
-            }
+        // Small random tweak or full reset
+        layer.biases[i] += (Math.random() * 2 - 1) * mutationFactor;
+        if (Math.random() < 0.01) layer.biases[i] = Math.random() * 2 - 1; // occasional full mutation
+      }
 
-            // Mutate weights
-            for (let i = 0; i < layer.weights.length; i++) {
-              for (let j = 0; j < layer.weights[i].length; j++) {
-                // if (Math.random() < mutationFactor) {
-                  // layer.weights[i][j] += (Math.random() * 2 - 1) * 0.1; // used to be  * mutationFactor
+      // Mutate weights
+      for (let i = 0; i < layer.weights.length; i++) {
+        for (let j = 0; j < layer.weights[i].length; j++) {
+          layer.weights[i][j] += (Math.random() * 2 - 1) * mutationFactor;
+          // layer.weights[i][j] *= (1 + (Math.random() * mutationFactor));
+          if (Math.random() < 0.01) layer.weights[i][j] = Math.random() * 2 - 1; // occasional full mutation
+        }
+      }
+    });
+  }
 
-                  layer.weights[i][j] += (Math.random() * 2 - 1) * mutationFactor;
-                  // layer.weights[i][j] *= (1 + (Math.random() * mutationFactor));
-                  if (Math.random() < 0.01) layer.weights[i][j] = Math.random() * 2 - 1; // occasional full mutation
-                // }
-              }
-            }
-        });
-    }
+  static mutate_even_better(network, mutationRate = 0.02, mutationStrength = 0.5, resetChance = 0.002) {
+    network.layers.forEach(layer => {
+      // Biases
+      for (let i = 0; i < layer.biases.length; i++) {
+
+        if (Math.random() < mutationRate) {
+          layer.biases[i] +=
+          (Math.random() * 2 - 1);
+          // (Math.random() * 4 - 2);
+        }
+
+        // if (Math.random() < resetChance) {
+        //   // layer.biases[i] = Math.random() * 2 - 1;
+        //   layer.biases[i] = Math.random() * 4 - 2;
+        // }
+
+        layer.biases[i] = Math.min(1, Math.max(-1, layer.biases[i]))
+      }
+
+      // Weights
+      for (let i = 0; i < layer.weights.length; i++) {
+        for (let j = 0; j < layer.weights[i].length; j++) {
+
+          if (Math.random() < mutationRate) {
+            layer.weights[i][j] +=
+            (Math.random() * 2 - 1);
+            // (Math.random() * 4 - 2);
+          }
+
+          // if (Math.random() < resetChance) {
+          //   // layer.weights[i][j] = Math.random() * 2 - 1;
+          //   layer.weights[i][j] = Math.random() * 4 - 2;
+          // }
+
+          layer.weights[i][j] = Math.min(1, Math.max(-1, layer.weights[i][j]))
+        }
+      }
+    });
+  }
 
   static crossover(dna1, dna2) {
     let child = JSON.parse(JSON.stringify(dna1)); // Deep copy parent1
@@ -190,6 +271,68 @@ class NN {
     return child;
   }
   
+  static singlePointCrossover(parentA, parentB) {
+    const child = JSON.parse(JSON.stringify(parentA)); // Create a deep copy of parent A
+
+    // Determine the crossover point randomly within available layers
+    const crossoverLayer = Math.floor(Math.random() * parentA.layers.length);
+
+    // Loop through each layer starting from the crossover point
+    for (let layerIndex = crossoverLayer; layerIndex < parentA.layers.length; layerIndex++) {
+      const layerA = parentA.layers[layerIndex];
+      const layerB = parentB.layers[layerIndex];
+
+      // Swap biases
+      layerA.biases.forEach((bias, i) => {
+        if (Math.random() < 0.5) { // Randomly choose from either parent
+          child.layers[layerIndex].biases[i] = layerB.biases[i];
+        }
+      });
+
+      // Swap weights
+      layerA.weights.forEach((weightsRow, i) => {
+        weightsRow.forEach((weight, j) => {
+          if (Math.random() < 0.5) { // Randomly choose from either parent
+            child.layers[layerIndex].weights[i][j] = layerB.weights[i][j];
+          }
+        });
+      });
+    }
+
+    console.log(crossoverLayer)
+    console.log(parentA, parentB, child);
+
+    debugger
+
+    return child; // Return the new child network
+}
+
+  static uniformCrossover(parentA, parentB) {
+    const child = JSON.parse(JSON.stringify(parentA)); // Create a deep copy of parent A
+
+    const crossoverLayer = Math.floor(Math.random() * parentA.layers.length);
+
+    // Loop through each layer of the neural network
+    for (let layerIndex = crossoverLayer; layerIndex < parentA.layers.length; layerIndex++) {
+      const layerA = parentA.layers[layerIndex];
+      const layerB = parentB.layers[layerIndex];
+
+      // Uniformly swap biases
+      layerA.biases.forEach((bias, i) => {
+        child.layers[layerIndex].biases[i] = layerB.biases[i];
+      });
+
+      // Uniformly swap weights
+      layerA.weights.forEach((weightsRow, i) => {
+        weightsRow.forEach((weight, j) => {
+          child.layers[layerIndex].weights[i][j] = layerB.weights[i][j];
+        });
+      });
+    }
+
+    return child; // Return the new child network
+  }
+
   static createChild(dna1, dna2, p1_f, p2_f, i) {
     // let child = NN.crossover(dna1, dna2);
     let child = JSON.parse(JSON.stringify(dna1));
@@ -211,10 +354,84 @@ class NN {
     return child;
   }
 
+  static mutateParameters(network,
+    {
+      rate = 0.02,
+      strength = 0.05,
+      resetRate = 0.001,
+      weightLimit = 5
+    } = {}
+  ) {
+    function mutateValue(value) {
+      if (Math.random() < resetRate) {
+        return Math.random() * 2 - 1;
+      }
+
+      if (Math.random() >= rate) {
+        return value;
+      }
+
+      value += gaussianRandom() * strength;
+
+      return Math.max(
+        -weightLimit,
+        Math.min(weightLimit, value)
+      );
+    }
+
+    for (const layer of network.layers) {
+      for (let i = 0; i < layer.biases.length; i++) {
+        layer.biases[i] =
+          mutateValue(layer.biases[i]);
+      }
+
+      for (let input = 0;
+          input < layer.weights.length;
+          input++) {
+        for (let output = 0;
+            output < layer.weights[input].length;
+            output++) {
+          layer.weights[input][output] =
+            mutateValue(
+              layer.weights[input][output]
+            );
+        }
+      }
+    }
+  }
+
+  static chooseMutationSettings() {
+    const roll = Math.random();
+
+    // Fine-tuning children.
+    if (roll < 0.70) {
+      return {
+        rate: 0.05,
+        strength: 0.05,
+        resetRate: 0
+      };
+    }
+
+    // Medium exploration.
+    if (roll < 0.95) {
+      return {
+        rate: 0.14,
+        strength: 0.20,
+        resetRate: 0.001
+      };
+    }
+
+    // A few aggressive explorers.
+    return {
+      rate: 0.28,
+      strength: 0.30,
+      resetRate: 0.005
+    };
+  }
 
   // Visualise the neural network.
   // Used for best agent.
-  static visualize(network, inputs) {
+  static visualize(network, inputs, angle, power_ratio) {
     var max_height = 150;
     const offset = 20;
     const between = 75;
@@ -223,32 +440,38 @@ class NN {
     for (var layer = 0; layer < network.layers.length; layer++) {
      
       for (var neuronInput = 0; neuronInput < network.layers[layer].inputs.length; neuronInput++) {
-        var x1= offset+between*layer;
+        const x1= offset+between*layer;
          
-        var y1= offset+(max_height/network.layers[layer].inputs.length)*neuronInput+(max_height/network.layers[layer].inputs.length/2);
-
-        ctx.globalAlpha = Math.min(network.layers[layer].inputs[neuronInput],1);
-        circle(x1, y1);
+        const y1= offset+(max_height/network.layers[layer].inputs.length)*neuronInput+(max_height/network.layers[layer].inputs.length/2);
        
         for (var outputNeuron = 0; outputNeuron < network.layers[layer].outputs.length; outputNeuron++) {
 
-          var x= offset+between*(layer+1);
-          var y= offset+(max_height/network.layers[layer].outputs.length)*outputNeuron+(max_height/network.layers[layer].outputs.length/2);
+          const x= offset+between*(layer+1);
+          const y= offset+(max_height/network.layers[layer].outputs.length)*outputNeuron+(max_height/network.layers[layer].outputs.length/2);
 
-          ctx.globalAlpha = Math.min(network.layers[layer].outputs[outputNeuron]+.1,1);
-          circle(x, y);
-
-          var x2 = offset+between*(layer+1)
-          var y2 = offset+(max_height/network.layers[layer].outputs.length)*outputNeuron+(max_height/network.layers[layer].outputs.length/2);
-          var weight = network.layers[layer].weights[neuronInput][outputNeuron]
-          var color = weight>=0 ? "orange" : "blue"
-          var thickness = (weight+1)/2;
-          ctx.globalAlpha = thickness;
+          const x2 = offset+between*(layer+1)
+          const y2 = offset+(max_height/network.layers[layer].outputs.length)*outputNeuron+(max_height/network.layers[layer].outputs.length/2);
+          const weight = network.layers[layer].weights[neuronInput][outputNeuron]/2
+          const color = weight>=0 ? "orange" : "blue"
+          ctx.globalAlpha = Math.min(Math.abs(network.layers[layer].inputs[neuronInput]),1) * Math.abs(weight)/2;
+          // debugger
           line(x1,y1,x2,y2,color);
+
+          // ctx.globalAlpha = Math.min(network.layers[layer].outputs[outputNeuron]+.1,1);
+          // circle(x, y);
         }
+        ctx.globalAlpha = Math.min(Math.abs(network.layers[layer].inputs[neuronInput]),1);
+        circle(x1, y1);
       }
 
 
+    }
+
+    for (var outputs = 0; outputs < network.layers[network.layers.length-1].outputs.length; outputs++) {
+      const x1= offset+between*network.layers.length-1;
+      const y1= offset+(max_height/network.layers[network.layers.length-1].outputs.length)*outputs+(max_height/network.layers[network.layers.length-1].outputs.length/2);
+      ctx.globalAlpha = Math.min(Math.abs(network.layers[network.layers.length-1].outputs[outputs]),1);
+      circle(x1, y1);
     }
 
     // 0 UP
@@ -261,28 +484,42 @@ class NN {
     text(
       (network.layers.length)*between+offset*2,
       (a)+offset/1.5,
-      "Power 1"
+      power_ratio[0].toFixed(3) + " Power 1"
     )
 
     text(
       (network.layers.length)*between+offset*2,
       (a*2)+offset/1.5,
-      "Angle 1"
+      angle[0].toFixed(3) + " Angle 1"
     )
 
     text(
       (network.layers.length)*between+offset*2,
       (a*3)+offset/1.5,
-      "Power 2"
+      power_ratio[1].toFixed(3) + " Power 2"
     )
 
     text(
       (network.layers.length)*between+offset*2,
       (a*4)+offset/1.5,
-      "Angle 2"
+      angle[1].toFixed(3) + " Angle 2"
     )
   }
 
+  // Function to create a random neural network architecture
+  static createRandomNN(minLayers, maxLayers, minNeurons, maxNeurons) {
+    // Randomly determine the number of layers
+    const numLayers = Math.floor(Math.random() * (maxLayers - minLayers + 1)) + minLayers;
+    const neuronsArray = [];
+
+    // Generate random number of neurons for each layer
+    for (let i = 0; i < numLayers; i++) {
+        const numNeurons = Math.floor(Math.random() * (maxNeurons - minNeurons + 1)) + minNeurons;
+        neuronsArray.push(numNeurons);
+    }
+
+    return neuronsArray;
+  }
 
   // PLOT FUNCTION
   // For the graph up top.
@@ -339,53 +576,72 @@ class Layer {
 
   }
 
+  // static random(layer) {
+  //   for (let i = 0; i < layer.inputs.length; i++) {
+  //     for (let j = 0; j < layer.outputs.length; j++) {
+  //       layer.weights[i][j] = Math.random()*2-1;
+  //       // layer.weights[i][j] = Math.random()*4 - 2;
+  //     }
+  //   }
+
+  //   for (let i = 0; i < layer.biases.length; i++) {
+  //     layer.biases[i] = Math.random()*2-1;
+  //     // layer.biases[i] = Math.random()*4 - 2;
+  //   }
+  // }
+
   static random(layer) {
-    for (let i = 0; i < layer.inputs.length; i++) {
-      for (let j = 0; j < layer.outputs.length; j++) {
-        layer.weights[i][j] = Math.random()*2-1;
+    const inputCount = layer.inputs.length;
+    const outputCount = layer.outputs.length;
+    const limit = Math.sqrt(6 / (inputCount + outputCount));
+
+    for (let input = 0; input < inputCount; input++) {
+      for (let output = 0; output < outputCount; output++) {
+        layer.weights[input][output] =
+          (Math.random() * 2 - 1) * limit;
       }
     }
 
-    for (let i = 0; i < layer.biases.length; i++) {
-      layer.biases[i] = Math.random()*2-1;
-    }
+    // Starting biases at zero reduces immediate saturation.
+    layer.biases.fill(0);
   }
 
   static feedForwardLayer(inputs, layer, binary=false) {
-    for (let i = 0; i < layer.inputs.length; i++) {
-      layer.inputs[i] = inputs[i]
-    }
+    const inputCount = inputs.length;
+    const outputCount = layer.outputs.length;
+    const weights = layer.weights;
+    const biases = layer.biases;
+    const outputs = layer.outputs;
 
-    for (let outputN = 0; outputN < layer.outputs.length; outputN++) {
+    for (let outputN = 0; outputN < outputCount; outputN++) {
 
-      let sum = 0;
-      for (let inputN = 0; inputN < layer.inputs.length; inputN++) {
-        sum += layer.inputs[inputN]*layer.weights[inputN][outputN];
+      let sum = biases[outputN];
+      // row-major: weights[input][output]
+      
+      for (let inputN = 0; inputN < inputCount; inputN++) {
+        sum += inputs[inputN]*weights[inputN][outputN];
       }
+
+
+      outputs[outputN] = NN.tanh(sum)
+      // outputs[outputN] = !binary ? NN.tanh(sum) : NN.RELU(sum)
 
       // If not binary (such as hidden layers) use tanh
-      if (!binary) {
-        // tanh
-        layer.outputs[outputN] = NN.tanh(sum+layer.biases[outputN])
+      // if (!binary) {
+      //   // tanh
+      //   outputs[outputN] = NN.tanh(sum)
      
-      // Use binary for outputs since for them it has to be either a 0 or 1.
-      } else {
-        // Binary Class
-        // Same as lectures.
-        // if (sum>layer.biases[outputN]) {
-        //   layer.outputs[outputN]=1;
-        // } else {
-        //   layer.outputs[outputN]=0;
-        // }
-
-        // In drones, don't do tanh
-        // skip this
-        layer.outputs[outputN] = sum+layer.biases[outputN]
-      }
+      // // Use binary for outputs since for them it has to be either a 0 or 1.
+      // } else {
+      //   // In drones, don't do tanh
+      //   // layer.outputs[outputN] = NN.tanh(sum+layer.biases[outputN])
+      //   outputs[outputN] = NN.RELU(sum)
+      //   // layer.outputs[outputN] = sum+layer.biases[outputN]
+      // }
 
     }
 
-    return layer.outputs;
+    return outputs;
   }
 }
 
@@ -432,31 +688,22 @@ class drone {
     // Brain is a neural network with 4 inputs, 2 hidden layers of size 4 each, and 4 outputs.
     // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
     // OUTPUTS: 4 values representing power/angle.
-    const brain = [7, 9, 9, 9, 4];
-    // const randomLength = Math.floor(Math.random() * 3) + 3;
-    // const randomNeurons = Math.floor(Math.random() * 5) + 4;
-    // let brain = new Array(randomLength).fill(0).map(() => Math.floor(Math.random() * randomNeurons) + 2);
-    // brain[0] = 7;
-    // brain[brain.length-1] = 4;
-    // console.log(brain)
+    
+    const brain = [7, 9, 9, 4];
+    
+    // let brain = [7, 3, 4];
+    // const rand = Math.random();
+    // if (rand < .33) brain = [7, 9, 9, 4]
+    // else if (rand < .66) brain = [7, 9, 9, 9, 4]
+
+    // let brain = NN.createRandomNN(1, 3, 2, 10);
+    // brain.unshift(7);
+    // brain.push(4);
 
     this.brain = new NN(brain);
-    // console.log(this.brain)
   }
 
-  move(i, goalpos) {
-    // 0 UP
-    // 1 LEFT
-    // 2 RIGHT
-    // 3 DOWN // NO MORE
-
-    // Add acceleration
-    // if (i[0]) this.acc[1]=speed;//this.fitness -= .01; // make this speed -speed for correctness
-    // if (i[1]) this.acc[0]=speed;//this.fitness -= .01;
-    // if (i[2]) this.acc[0]=-speed;//this.fitness -= .01;
-    // if (i[3]) this.acc[1]=-speed;//this.fitness -= .01; // make this speed: speed for correctness
-
-
+  move(i) {
 
     // New Inputs:
     // 0: Power for thruster 0 (0 => 1)
@@ -468,10 +715,10 @@ class drone {
     const left = this.thrusters[0]
     const right = this.thrusters[1]
 
-    left.setPower(i[0]);
+    left.setPower((i[0] + 1) * 0.5);
     left.setAngle(i[1]);
 
-    right.setPower(i[2]);
+    right.setPower((i[2] + 1) * 0.5);
     right.setAngle(i[3]);
 
     this.acc = [0,0]
@@ -497,22 +744,6 @@ class drone {
     // Update position
     this.pos[0] += this.vel[0] * deltaTime;
     this.pos[1] += this.vel[1] * deltaTime;
-
-    // If velocity away from goal, penalize
-    const goalx = goalpos[0];
-    const goaly = goalpos[1];
-    // if (goalx - (this.vel[0] + this.pos[0]) < goalx - this.pos[0] && goalx - (this.vel[1] + this.pos[1]) < goaly - this.pos[1]) {
-    //   this.fitness += .5;
-    // } else {
-    //   this.fitness -= .5;
-    // }
-
-    // this.fitness += .1;
-
-    // if ((i[0] && i[1]) || (i[0] && i[2])) this.fitness -= 10;
-    // if ((i[3] && i[1]) || (i[3] && i[2])) this.fitness -= 10;
-    // this.fitness -= 0.1 * (Math.abs(this.vel[0]) + Math.abs(this.vel[1]));
-
   }
 
   update() {
@@ -522,7 +753,7 @@ class drone {
     // this.thrusters[1].pos = [this.pos[0]+this.width/2, this.pos[1]]
 
     // difference in x and y
-    this.goalball.pos = stages[this.stage];
+    // this.goalball.pos = stages[this.stage];
     const goalx = this.goalball.pos[0];
     const goaly = this.goalball.pos[1];
     const dx = goalx - this.pos[0];
@@ -536,12 +767,13 @@ class drone {
 
     // INPUTS: to target x/y, vel x/y, cos angle of drone, sin angle of drone, angular velocity of drone
     this.move(NN.feedForward([
-      dx, dy, //to target x/y
-      this.vel[0], -this.vel[1], //vel x/y
+      dx/windowWidth, dy/windowHeight, //to target x/y
+      this.vel[0], this.vel[1], //vel x/y
       Math.cos(this.angle), Math.sin(this.angle), // cos angle of drone, sin angle of drone
       this.angular_velocity, // angular velocity of drone
     ], 
-    this.brain), [goalx, goaly]);
+    this.brain));
+
 
     // console.log(NN.feedForward([normalizedX, normalizedY, goalx/windowWidth, goaly/windowHeight], this.brain));
     // console.log(this.brain)
@@ -551,7 +783,7 @@ class drone {
     const inertia_coef = .8;
     const thruster_offset = this.width/2;
 
-		const angle_left =  -this.thrusters[0].angle - (Math.PI/2);
+		const angle_left =  this.thrusters[0].angle - (Math.PI/2);
     const left_torque = this.thrusters[0].getPower() / thruster_offset * 
     cross(
       [Math.cos(angle_left), Math.sin(angle_left)], 
@@ -561,7 +793,7 @@ class drone {
 		const angle_right = this.thrusters[1].angle - (Math.PI/2);
     const right_torque = this.thrusters[1].getPower() / thruster_offset * 
     cross(
-      [Math.cos(angle_left), Math.sin(angle_left)], 
+      [Math.cos(angle_right), Math.sin(angle_right)], 
       [-1.0, 0.0]
     );
 
@@ -583,15 +815,15 @@ class drone {
 		return addVector(thrust_left, thrust_right);
 	}
 
-  draw() {
+  draw(best) {
     ctx.save();
 
     ctx.translate(this.pos[0], this.pos[1])
 
     ctx.rotate(this.angle);
 
-    ctx.fillStyle = this.color;
-    rect(-this.width/2, -this.height/2, this.width, this.height);
+    // ctx.fillStyle = best ? "gold" : this.color;
+    rect(-this.width/2, -this.height/2, this.width, this.height, best ? "gold" : this.color);
 
     this.thrusters[0].draw([-this.width/2, 0]);
     this.thrusters[1].draw([+this.width/2, 0]);
@@ -608,13 +840,14 @@ class thruster {
     this.pos = [x,y];
 
     this.power_ratio = 0; // output of AI will be 0-1; so from 0 to max_power
-    this.max_power = .2; // acc
+    this.max_power = .075; // acc
 
 		this.angle = 0; // Angle of each thruster
-		this.max_angle = 3/4 * Math.PI; // Max left half PI and max right half PI
-		this.target_angle;
-		this.angle_var_speed = .01; // How fast the thruster can rotate
-		this.angle_ratio;
+		// this.max_angle = 3/4 * Math.PI; // Max left half PI and max right half PI
+		this.max_angle = 1; // Max left half PI and max right half PI
+		this.target_angle = 0;
+		this.angle_var_speed = 1; // How fast the thruster can rotate
+		this.angle_ratio = 0;
 
     this.width = 20;
     this.height = 50;
@@ -656,7 +889,7 @@ class thruster {
 
     // Flame
     ctx.translate(-this.width*2/2, +this.height/2.5)
-    ctx.drawImage(flame, 0, 0, this.width*2, this.getPower()*flame.height/2)
+    ctx.drawImage(flame, 0, 0, this.width*2, this.getPower()*flame.height)
 
     ctx.restore();
 
@@ -682,38 +915,29 @@ class goal {
   draw() {
     ctx.beginPath();
     ctx.fillStyle = "green";
-    ctx.arc(this.pos[0], this.pos[1], 5, 0, 2 * Math.PI);
+    ctx.arc(this.pos[0], this.pos[1], 2, 0, 2 * Math.PI);
     ctx.fill();
+
+    ctx.beginPath();
+    ctx.fillStyle = "green";
+    ctx.arc(this.pos[0], this.pos[1], 8, 0, 2 * Math.PI);
+    ctx.stroke();
   }
 }
 
-
-// Initialize agents array, configure amount of agents, and the generation function.
-var drones = [];
-const training = true;
-const ballAmount = training ? 6000 : 1;
-function generation() {
-  const drones_amount = drones.length;
-  for (let i = 0; i < ballAmount-drones_amount; i++) {
-    // let x = Math.random() * windowWidth;
-    // let y = Math.random() * windowHeight;
-    // drones.push(new drone(x, y));
-    drones.push(new drone(windowWidth/2, windowHeight/2));
-  }
-}
 
 // Generate first gen.
 generation()
 
 // Assign goal, purely for visuals, and for fitness calculation.
-var goalball = new goal()
+var goalball = new goal();
 
 
 // Config
-let steps_per_gen = 6000*deltaTime;
+let steps_per_gen = 10000;
 let gen = 0;
 let step = 0;
-const numBest = Math.floor(ballAmount * 0.3);
+const numBest = Math.floor(ballAmount * 0.05);
 
 if (!training) {
   document.addEventListener('mousemove', function(e) {
@@ -722,106 +946,159 @@ if (!training) {
   });
 }
 
-
-// if (!localStorage.getItem("brain")) localStorage.setItem('brain', "{\"fitness\":-79852.91506666942,\"brain\":{\"layers\":[{\"inputs\":[-0.02137174119843621,0.11099622936126252,-0.047879122394246666,-0.004123451061363657],\"outputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"biases\":[0.04095441548424866,-0.11350061844515014,0.09921157064924271,0.024268035069157836,-0.08979267659397498,0.003162736088979263,0.09667388679275374],\"weights\":[[-0.0006481733497199751,-0.045717197386417566,0.09451767505950141,-0.0007320629529811609,0.018331140029499447,-0.019045928977273415,-0.08868185055452045],[0.031612289497859124,0.12428124949197214,-0.01687123665420824,0.013429824610282718,-0.050785071498858865,0.005683015333104701,0.02413011496819181],[-0.09656842458117418,0.06963798039537848,-0.03644955117212821,-0.1033112300043343,-0.1824974942569167,0.13273830573952486,-0.03820928891135767],[-0.060596260436669235,-0.04263101854571571,0.02026557991616553,-0.19922994009095646,-0.027769872455340027,0.0809859561873496,0.07592413618220721]]},{\"inputs\":[0.04931056500175949,-0.10153612454556875,0.09667762643373178,0.03153184985728907,-0.08675046323523979,-0.002488756048168393,0.1024036603526007],\"outputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"biases\":[0.10060191564581851,0.0750077378759982,0.015094358449828864,-0.03627741261013865,0.011825881338341927,0.00647039897776997,0.03215207375391765],\"weights\":[[-0.007465685024560383,0.015939796315605676,0.0015353599478004718,-0.04920817467408902,0.013451206094227435,0.014645338023631195,-0.06704742022722411],[0.08807504438553841,0.0710020403045861,0.023371662593475673,0.11438271661138255,0.06394951445018819,-0.028085447415192706,-0.05663348715307049],[0.03304720284773742,0.10269676530807391,0.013114103585590576,-0.019524453968723127,0.040333386793709534,-0.03925351178964188,-0.012627658824033333],[0.049565134001931584,0.0006983659457811156,0.09334001682283533,-0.07315821432291264,0.06953594479347054,0.030213084302871025,0.006546351775161597],[0.06135565632966065,-0.04827298699234826,0.03112347552259101,-0.012092774627974588,-0.015547354854684305,0.07186779004576392,0.017466658265330354],[0.022849036091134183,-0.02566045478149357,-0.14022760186209926,0.024664561361443373,0.036515946713025375,-0.04934413129225954,0.014067613165421535],[-0.04419352758757091,0.0704132705673496,0.004708497029700486,0.05875191045253982,-0.002726616132706979,0.05342397763225214,0.05215902377746635]]},{\"inputs\":[0.08593125632812669,0.08975491778397822,0.01513805087256934,-0.0474724743664328,0.013065817010262236,0.006560952589577505,0.03735551200343421],\"outputs\":[1,1,0,1],\"biases\":[-0.05361388392075887,-0.020539873297679676,-0.009339673241524744,-0.010949945805380173],\"weights\":[[0.038729825968166834,0.003331361273977622,-0.0713988383250234,-0.021593381485938763],[0.029082446696769817,0.012692840990284712,0.009948980387291185,-0.06305064745566746],[-0.044311385410983006,-0.005922337940038113,-0.11280964396190278,-0.11164465348677138],[0.06271549576976718,-0.1343676545185808,0.02209361754321169,-0.0077261927960031096],[0.028632462026410975,-0.010271652856849538,-0.004605139810650052,-0.10668622302870821],[-0.007048046416734196,0.06136053186885656,-0.0425915739154361,-0.008118647472714804],[-0.02619672855260632,0.04822150638691121,-0.028542500563720388,-0.01535000200645547]]}]}}")
-  
-// if (!training) drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
 if (localStorage.getItem("brain") !== null) {
   drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
 }
 
-let previousBestFitness = -Infinity;
+let previousBestFitness = 0;
 let stagnation = 0;
 
 let dead = 0;
 
 let bestAgents;
 
-function isMovingTowardsGoal(position, velocity, goal) {
-  // Vector from position to goal
-  const toGoal = [goal[0] - position[0], goal[1] - position[1]];
+function pickTwoParents() {
+  // Build cumulative fitness array
+  const cumulative = [0];
+  for (let i = 0; i < drones.length; i++) {
+    cumulative.push(cumulative[i] + drones[i].fitness);
+  }
 
-  // Dot product of velocity and toGoal vector
-  const dot = velocity[0] * toGoal[0] + velocity[1] * toGoal[1];
+  const totalFitness = cumulative[cumulative.length - 1];
 
-  // If dot product > 0, the drone is moving toward the goal
-  // return dot > 0;
-  return dot;
+  function pickOne() {
+    const r = Math.random() * totalFitness;
+
+    // Binary search
+    let low = 0;
+    let high = 0.05 * drones.length;
+
+    while (low < high - 1) {
+      const mid = (low + high) >> 1;
+      if (cumulative[mid] < r) low = mid;
+      else high = mid;
+    }
+
+    return bestAgents[(low + high) >> 1];
+  }
+
+  return [pickOne(), pickOne()];
 }
 
+function tournamentPick(pop, k = 3) {
+  let best = null;
+
+  for (let i = 0; i < k; i++) {
+    const candidate = pop[Math.floor(Math.random() * pop.length)];
+    if (!best || candidate.fitness > best.fitness) {
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+function pick() {
+  // 1. Calculate the combined fitness sum of the entire pool
+  const totalFitness = drones.reduce((sum, d) => sum + d.fitness, 0);
+  
+  // 2. Spin the wheel to get a target value
+  const target = Math.random() * totalFitness;
+  
+  // 3. Accumulate scores until you hit the target
+  let runningSum = 0;
+  for (let i = 0; i < drones.length; i++) {
+    runningSum += drones[i].fitness;
+    if (runningSum >= target) {
+      return drones[i];
+    }
+  }
+  
+  // Fallback in case of tiny floating-point rounding errors
+  return drones[drones.length - 1];
+}
+
+debug_button.onClick(() => {
+  
+  console.log(bestAgents[0].brain.layers[0].inputs)
+  debugger;
+  // [
+  //     dx/windowWidth, dy/windowHeight, //to target x/y
+  //     this.vel[0], this.vel[1], //vel x/y
+  //     Math.cos(this.angle), Math.sin(this.angle), // cos angle of drone, sin angle of drone
+  //     this.angular_velocity, // angular velocity of drone
+  // ]
+
+})
+
 // MAIN CODE PER FRAME FOR EACH OF THE AGENTS
-function frame() {
-  ctx.clearRect(0, 0, c.width, c.height);
+function frame(timestamp) {
+  // ctx.clearRect(0, 0, c.width, c.height);
 
-  console.time("start")
+  // if (step == 0) console.time("start")
 
-  ctx.globalAlpha = 1;
-  // ctx.globalAlpha = 0.3;
+  // ctx.globalAlpha = 1;
  
   // Loop through all agents to update/determine their fitness
-  // for (const agent of drones) {
   for (var i = 0; i < drones.length; i++) {
     const agent = drones[i];
     if (agent.dead) continue;
 
-    // agent.draw();
-    // agent.goalball.draw();
+    if (!training) {
+      agent.draw(true);
+      agent.goalball.draw();
+      line(agent.pos[0], agent.pos[1], agent.goalball.pos[0], agent.goalball.pos[1], "gold")
+    }
 
     if (training && !agent.dead) {
-      // agent.fitness += 1 / (0.000001 + Math.sqrt(
-      //     Math.pow(goalball.pos[0] - agent.pos[0], 2) +
-      //     Math.pow(goalball.pos[1] - agent.pos[1], 2)
-      // ))
-      const distance = ((agent.goalball.pos[0] - agent.pos[0])**2) + ((agent.goalball.pos[1] - agent.pos[1])**2);
-      // agent.fitness += Math.exp(-distance * 0.1);  // 0.1 controls scaling
+      const distance = Math.sqrt(((agent.goalball.pos[0] - agent.pos[0])**2) + ((agent.goalball.pos[1] - agent.pos[1])**2));
       
       // Reward for going towards the goalball
-      const dot = isMovingTowardsGoal(agent.pos, agent.vel, agent.goalball.pos)
-      agent.fitness += (10 / ( 1 + distance )) * dot
-      
-      // agent.fitness += agent.vel * dot;
+      // const dot = isMovingTowardsGoal(agent.pos, agent.vel, agent.goalball.pos)
+      // const sign = Math.sign(dot) >= 0 ? 1 : 0
 
-      // agent.fitness -= Math.abs(agent.angular_velocity * 100); // Penalize angular velocity
-
+      agent.fitness += (1 + agent.stage) / ( 1 + distance );
+    
       // reward for staying up right
-      agent.fitness += Math.cos(agent.angle);
+      // agent.fitness += Math.cos(agent.angle);
 
-      // Reward for speed
-      // agent.fitness += Math.abs(
-      //   Math.sqrt(
-      //     Math.pow(agent.vel[0], 2) +
-      //     Math.pow(agent.vel[1], 2)
-      //   ) * 0.5
-      // );
+      // speed
+      // agent.fitness += Math.hypot(agent.vel[0], agent.vel[1]) / distance;
 
-      if (distance < 50**2) {
-        agent.fitness += Math.pow(Math.cos(agent.angle)*10, 3)
+      agent.fitness -= agent.angular_velocity;
 
-        // agent.fitness += 10 / (1 + Math.abs(agent.angular_velocity)); // reward being still
-        agent.fitness += 5 / (1 + Math.sqrt(agent.vel[0]**2 + agent.vel[1]**2) ); // reward not moving fast
-
+      if (distance < 8) {
         agent.time += deltaTime;
-        // agent.fitness += steps_per_gen - step;
-        if (agent.time >= 200) {
-          // steps_per_gen = Math.max(...drones.map(d => d.stage)) * 1000;
-          step = 0;
+        
+        if (agent.time >= 125) {
+          // step = 0;
           agent.time = 0;
+          
+          agent.fitness += (Math.cos(agent.angle)**2) * 1000000 / (agent.timeOut);
+          // console.log((Math.cos(agent.angle)**2) * 100000 / (agent.timeOut), agent.timeOut)
+          // agent.fitness += 5000 - step;
+          
           agent.stage += 1;
-          agent.fitness *= 1.2;
+          agent.goalball.pos = stages[agent.stage % (stages.length-1)]
+
+          agent.timeOut = 0;
         }
       } else {
-        agent.timeOut += deltaTime;
+        agent.timeOut++;
       }
 
 
       if (
-        ((agent.pos[0] < -windowWidth/2 || agent.pos[0] > windowWidth*3/2) 
-      || (agent.pos[1] < -windowHeight/2 || agent.pos[1] > windowHeight*3/2)) || (agent.angle <= -Math.PI || agent.angle >= Math.PI)) {
+      //   ((agent.pos[0] < -windowWidth/2 || agent.pos[0] > windowWidth*3/2) 
+      // || (agent.pos[1] < -windowHeight/2 || agent.pos[1] > windowHeight*3/2)) 
+         ((agent.pos[0] < 0 || agent.pos[0] > windowWidth) 
+      || (agent.pos[1] < 0 || agent.pos[1] > windowHeight)) 
+      || (agent.angle <= -Math.PI || agent.angle >= Math.PI)
+      ) {
         agent.dead = true;
-        if ((agent.angle <= -Math.PI || agent.angle >= Math.PI)) {
-          agent.fitness /= 10;
-          // agent.fitness = 0
-        } 
+        // if ((agent.angle <= -Math.PI || agent.angle >= Math.PI)) {
+          // agent.fitness /= 2;
+        // } 
         dead++
       }
 
@@ -830,27 +1107,13 @@ function frame() {
     
     
     // console.log(i)
-    agent.update();
-    // agent.thrusters[0].update();
-    // agent.thrusters[1].update();
-
-    // agent.draw();
-    // console.log(agent)
-
-    // agent.thrusters[0].setPower(0);
-    // agent.thrusters[1].setPower(0);
-
-    // agent.thrusters[0].setAngle(0);
-    // agent.thrusters[1].setAngle(0);
-    
+    if (!agent.dead) {
+      agent.update();
+      agent.thrusters[0].update();
+      agent.thrusters[1].update();
+    }
 
   }
- 
-  // drones[0].draw()
-  // drones[0].goalball.draw()
-  
-  
-  // drones[0].draw();
  
   // Draw the main objective
   // goalball.draw();
@@ -858,88 +1121,91 @@ function frame() {
   if (training) {
 
     // Draw numBest
-    bestAgents = (drones.toSorted((a,b) => b.fitness - a.fitness)).slice(0,numBest);
-    for (var i = 0; i < numBest; i++) {
-      const agent = bestAgents[i];
-      if (agent.dead) continue;
+    // Keep 25% but only 3% are best
+    bestAgents = (drones.toSorted((a,b) => b.fitness - a.fitness)).slice(0,Math.floor(drones.length*0.05));
+    if (!fast_forward.state) {
+      for (var i = 0; i < bestAgents_slider.state; i++) {
+        const agent = drones[i];
+        if (!agent) continue;
+        if (agent.dead) continue;
+
+        ctx.globalAlpha = 0.1;
+        if (i==0) {
+          ctx.globalAlpha = 1;
+          line(agent.pos[0], agent.pos[1], agent.goalball.pos[0], agent.goalball.pos[1], "gold")
+        } else {
+          line(agent.pos[0], agent.pos[1], agent.goalball.pos[0], agent.goalball.pos[1], "green")
+        }
+
+        agent.goalball.draw();
+        agent.color = "white"
+        agent.draw(i==0);
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    if (!fast_forward.state && previous_best_toggle.state) {
+      const agent = drones[0];
+
+      ctx.globalAlpha = 1;
+      
       agent.goalball.draw();
-      agent.draw();
-      agent.color = "#FFD700"
+      agent.color = "white"
+      agent.draw(true);
+      line(agent.pos[0], agent.pos[1], agent.goalball.pos[0], agent.goalball.pos[1], "gold")
     }
 
     // Visualized progress over all generations.
     // It's a hacky solution so it doesn't work quite alright.
     if (bestAgents) {
-      NN.visualize(bestAgents[0].brain, bestAgents[0].pos)
+      NN.visualize(bestAgents[0].brain, 
+      bestAgents[0].pos, 
+      [bestAgents[0].thrusters[0].angle, bestAgents[0].thrusters[1].angle], [bestAgents[0].thrusters[0].power_ratio, bestAgents[0].thrusters[1].power_ratio])
+
       NN.plot(bestAgents[0].fitness);
     }
 
     // Handle generations
     // Count steps and record best agent in localstorage
-    step += deltaTime;
-    // drones[0].draw()
-    // step%10==0?console.log(Math.cos(drones[0].angle)):null
+    step += 1;
+    generation_text.text = `Gen: ${gen} // Step: ${step}/${steps_per_gen}`;
+    delta_fitness.text = `Current best: ${bestAgents[0].fitness.toFixed(1)} // Last Fitness: ${previousBestFitness.toFixed(1)} // ΔF = ${((bestAgents[0].fitness - previousBestFitness).toFixed(1))}`;
+
+    // if (step % 500 == 0) console.log(`${step}/${steps_per_gen}`)
+    // console.log(`${step}/${steps_per_gen}`)
      
     // If the steps are max, next generation
     // Or if the fitness is better than a certain threshold, next generation.
-    //let threshold = 0.90;
-    //if (JSON.parse(localStorage.getItem("brain"))) threshold = JSON.parse(localStorage.getItem("brain")).fitness
-    // || (bestAgents[0].fitness > threshold)    
     if(step>=steps_per_gen || dead == drones.length ) {
 
       console.timeEnd("start")
-
-      // Finds best agents
-      bestAgents = (drones.toSorted((a,b) => b.fitness - a.fitness)).slice(0,numBest);
-      // for (var i = 0; i < numBest; i++) {
-      //   const agent = bestAgents[i];
-      //   if (agent.dead) continue;
-      //   // agent.goalball.draw();
-      //   agent.color = "#FFD700"
-      // }
-
-      // for (const drone of drones) {
-      //   // const points = drone.goalball - dist; // distance to goalball after the alloted time is depleted
-      //   drone.fitness += Math.max(0, (1 / (1 + drone.timeOut) ))
-      // }
 
       // If brain if it doesn't exist, create.
       if (!localStorage.getItem("brain")) localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
      
       // If agent did better than last time, save.
-      // if (bestAgents[0].fitness > JSON.parse(localStorage.getItem("brain")).fitness ) {
-        // localStorage.setItem("brain", JSON.stringify(bestAgents[0]))
-      // }
       let storedBrain = JSON.parse(localStorage.getItem("brain"));
       if (!storedBrain || bestAgents[0].fitness > storedBrain.fitness) {
-          localStorage.setItem("brain", JSON.stringify(bestAgents[0]));
+        localStorage.setItem("brain", JSON.stringify(bestAgents[0]));
       }
 
-     
+      previousBestFitness = bestAgents[0].fitness;
+
       gen++
       console.log(`Gen: ${gen}, best: ${bestAgents[0].fitness}`)
-
-      // Adjust mutation rate adaptively
-      // if (bestAgents[0].fitness <= previousBestFitness && stagnation >= 50) {
-      //   mutation_factor = Math.min(mutation_factor * 1.05, 0.3); // Slightly increase if stuck
-      //   stagnation++;
-      // } else {
-      //   // mutation_factor *= 0.995; // Decrease normally if improving
-      //   mutation_factor = Math.max(0.001, Math.min(0.3, 1 / (bestAgents[0].fitness + 1)));  // Keep in bounds
-      //   stagnation = 0;
-      // }
-      // previousBestFitness = bestAgents[0].fitness;
+      generation_text.text = `Gen: ${gen} // Step: ${step}/${steps_per_gen}`;
+      delta_fitness.time = `Current best: ${bestAgents[0].fitness} // Last Fitness: ${previousBestFitness} // ΔF = ${(bestAgents[0].fitness - previousBestFitness).toFixed(1)}`;
+      
 
       // Get best agents from last gen to stay
-      // Only half of best get best brain to ensure diversity.
-      for (let i = 0; i < Math.floor(numBest/2); i++) {
+      for (let i = 0; i < Math.floor(drones.length*0.05); i++) {
         drones[i].brain = bestAgents[i].brain;
-        // drones[i].brain = JSON.parse(localStorage.getItem("brain")).brain;
       }
  
       // Reset steps and remove all agents.
       step = 0;
-      drones.splice(numBest);
+      drones.splice(Math.floor(drones.length*0.05));
      
       // Plot the new generation best agent.
       NN.plot(bestAgents[0].fitness, true);
@@ -947,98 +1213,57 @@ function frame() {
       // Generate new generation.
       generation();
 
-      // Decrease mutation factor.
-      // if (mutation_factor <= 0.01) mutation_factor = 0.01;
-      // else mutation_factor -= 0.001;
-      // mutation_factor *= 0.995; // Decrease by 0.5% per generation
+      bestAgents = bestAgents
+        .map(agent => structuredClone(agent));
 
-      // Change goal pos
-      // goalball.pos = [Math.random() * windowWidth, Math.random() * windowHeight]
-     
-      // Get best agents from last gen to stay.
-      // drones[0].brain = JSON.parse(localStorage.getItem("brain")).brain;
+      // Crossover
+      let avgMutationProba = 0;
+      for (let i = numBest; i < drones.length; i++) {
+        const parentA = pick();
+        let parentB = pick();
 
-      // for (let i = 0; i < bestAgents.length; i++) {
-      //   if (bestAgents[i].fitness < drones[i].fitness) drones[i].brain = bestAgents[i].brain;
-      // }
+        // Keep spinning for Parent B if it accidentally picked Parent A
+        let attempts = 0; 
+        while (parentB === parentA && attempts < 100) {
+          parentB = pick();
+          attempts++;
+        }
 
-      // if (bestAgents[1].fitness > drones[1].fitness) drones[1].brain = bestAgents[1].brain;
-      // if (bestAgents[2].fitness > drones[2].fitness) drones[2].brain = bestAgents[2].brain;
+        // const mutation_selection = (((parentA.fitness + parentB.fitness)/2) / bestAgents[0].fitness);
 
+        let child;
 
-      // Function to pick parents using weighted probability
-      // function selectParent(bestAgents) {
-      //   let totalFitness = bestAgents.reduce((sum, agent) => sum + agent.fitness, 0);
-      //   let pick = Math.random() * totalFitness;
-      //   let sum = 0;
+        if (parentA === parentB) {
+          child = structuredClone(parentA.brain);
+        } else {
+          child = NN.uniformCrossover(parentA.brain, parentB.brain);
+        }
+        // child = structuredClone(parentA.brain);
 
-      //   for (let agent of bestAgents) {
-      //     sum += agent.fitness;
-      //     if (sum >= pick) return agent;
-      //   }
-      //   return bestAgents[Math.floor(Math.random() * bestAgents.length)]; // Fallback: Random agent for diversity
-      // }
+        drones[i].brain = child;
 
-      /**
-       * Selects a parent agent from a population using roulette wheel selection.
-       * Agents with higher fitness values have a proportionally higher chance of being selected.
-       *
-       * @param {Array<Object>} population An array of agent objects, each with a 'fitness' property.
-       * @returns {Object|null} The selected parent agent, or null if the population is empty.
-       */
-      function selectParent(population) {
-          // 1. Handle empty population immediately
-          if (!population || population.length === 0) {
-              console.warn("Attempted to select a parent from an empty population. Returning null.");
-              return null;
-          }
+        const mutationSettings = NN.chooseMutationSettings();
 
-          // 2. Calculate total fitness
-          // Using reduce is good, but ensure fitness values are non-negative.
-          const totalFitness = population.reduce((sum, agent) => sum + Math.max(0, agent.fitness), 0);
+        NN.mutateParameters(
+          child,
+          mutationSettings
+        );
 
-          // 3. Handle case where total fitness is zero (e.g., all agents have 0 or negative fitness)
-          if (totalFitness <= 0) {
-              // If all fitness is zero or negative, no selection pressure can be applied.
-              // Fallback to purely random selection to maintain diversity or try to escape local optima.
-              console.warn("Total fitness is zero or negative. Falling back to random parent selection.");
-              return population[Math.floor(Math.random() * population.length)];
-          }
+        // const maxFitness = bestAgents[0].fitness;
+        // const avgFitness = (parentA.fitness + parentB.fitness) / 2;
+        // const fitnessRatio = avgFitness / maxFitness;
 
-          // 4. Generate a random pick point on the roulette wheel
-          // Math.random() generates a number between 0 (inclusive) and 1 (exclusive).
-          const pick = Math.random() * totalFitness;
+        // const baseMutation = 0.001;      // floor mutation
+        // const maxMutation = .10;       // cap mutation
+        // const mutationProba = Math.min(Math.max( baseMutation, fitnessRatio ), maxMutation );
+            
+        // avgMutationProba += mutationProba;
 
-          // 5. Spin the roulette wheel
-          let currentSum = 0;
-          for (let agent of population) {
-              // Only consider positive fitness for selection
-              const agentFitness = Math.max(0, agent.fitness);
-              currentSum += agentFitness;
-              if (currentSum >= pick) {
-                  return agent; // Found the parent
-              }
-          }
-
-          // 6. Fallback (should ideally not be reached with correct logic, but good for robustness)
-          // This could happen due to floating point inaccuracies if pick is exactly totalFitness
-          // or if the sum just barely misses the pick threshold.
-          console.warn("Roulette wheel selection did not find a parent. Returning the last agent.");
-          return population[population.length - 1];
+        // NN.mutate_even_better(child, mutationProba);
       }
+      avgMutationProba /= (drones.length - numBest);
 
-      // Mutate the rest with crossover
-      for (let i = 1; i < drones.length; i++) {
-          let parent1 = selectParent(bestAgents);
-          let parent2 = selectParent(bestAgents);
-
-          // Ensure different parents
-          if (parent1 === parent2) parent2 = selectParent(bestAgents);
-
-          // Create a child with crossover and mutation
-          drones[i].brain = NN.createChild(parent1.brain, parent2.brain, parent1.fitness, parent2.fitness, i);
-      }
-
+      debug_data.text = `avgMutationProba ${avgMutationProba.toString()}`;
 
       // reset all drone positions and velocities.
       for (let i = 0; i < drones.length; i++) {
@@ -1049,6 +1274,7 @@ function frame() {
         drones[i].angular_velocity = 0;
         drones[i].fitness = 0;
         drones[i].stage = 0;
+        drones[i].goalball.pos = stages[0];
         drones[i].time = 0;
         drones[i].dead = false;
         drones[i].timeOut = 0;
@@ -1063,21 +1289,37 @@ function frame() {
       dead = 0;
 
       // Mutate the rest.
-      // for (let i = 3; i < drones.length; i++) {
-      //   drones[i].brain = JSON.parse(JSON.stringify(drones[i%bestAgents.length].brain));
-        
-      //   // const mutation_proba = 1.0 / Math.sqrt(drones[i&bestAgents.length].fitness);
-      //   NN.mutate(drones[i].brain, mutation_factor)
-      //   // NN.mutate(drones[i].brain, mutation_proba)
+      // for (let i = drones.length*0.85; i < drones.length; i++) {
+      //   drones.splice(numBest*0.85);
+      //   generation();
       // }
     }
   }
 
-  window.requestAnimationFrame(frame);
+  bestAgents_slider.max = drones.length;
+
+  // imgui.draw();
+
+  // window.requestAnimationFrame(frame);
 }
  
-// setInterval(frame,1)
-window.requestAnimationFrame(frame);
+function main() {
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  if (step == 0) console.time("start")
+
+  ctx.globalAlpha = 1;
+  if (!fast_forward.state) {
+    frame()
+  } else {
+    for (var i = 0; i < Math.floor(ff_slider.state); i++) {
+      frame()
+    }
+  }
+  imgui.draw();
+} 
+setInterval(main,0)
+// window.requestAnimationFrame(frame);
  
 </script>
 
